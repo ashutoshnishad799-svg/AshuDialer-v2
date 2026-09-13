@@ -8,7 +8,15 @@ name: Build AshuPhone (APK + Magisk Module)
 # run - never an accidentally mismatched or stale one from a different run.
 on:
   push:
-    branches: [main]
+    # THE V2 CHANGE: the original AshuDialer repo's default branch was
+    # "main", so this trigger read branches: [main]. AshuDialer-v2 was
+    # pushed with `git push -u origin master` (git's older default branch
+    # name), so its default branch is "master" instead - left as [main]
+    # here, this workflow would simply never trigger on this repo, with no
+    # error to explain why. If this repo's default branch is ever renamed
+    # to main later (e.g. via GitHub's branch rename tool), change this
+    # back to match.
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -39,6 +47,19 @@ jobs:
       # for the full diagnostic steps and the (more likely) non-CI causes:
       # wrong Firebase Android app / package name, or a missing SHA-1
       # fingerprint registered against the release keystore.
+      #
+      # THE V2 REMINDER: GitHub does NOT copy repository secrets when you
+      # create a new, separate repo (this is deliberate GitHub security
+      # behavior, not something specific to this workflow) - every secret
+      # referenced anywhere in this file (GOOGLE_SERVICES_JSON,
+      # ASHU_RELEASE_KEYSTORE_BASE64, ASHU_RELEASE_STORE_PASSWORD,
+      # ASHU_RELEASE_KEY_ALIAS, ASHU_RELEASE_KEY_PASSWORD) must be re-added
+      # by hand in THIS repo under Settings -> Secrets and variables ->
+      # Actions -> New repository secret, using the exact same values as
+      # the original AshuDialer repo. Until all five exist here, this step
+      # (and later ones) will fail with the empty-secret error messages
+      # already written below - that failure is this workflow correctly
+      # catching the missing setup, not a bug in the workflow itself.
       - name: Create google-services.json from secret
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
@@ -79,6 +100,13 @@ jobs:
       # previous install instead of a signature mismatch, and so the
       # app's cert can build reputation with Play Protect over time
       # instead of looking like a brand-new throwaway signer each run.
+      #
+      # Reusing the SAME keystore secret value here (not generating a new
+      # keystore for this repo) matters beyond just CI convention: it's
+      # what lets an APK built from this v2 repo still install as an
+      # update over an AshuPhone/AshuDialer APK a person already has from
+      # the original repo, rather than Android refusing it as a signature
+      # mismatch.
       - name: Restore release keystore
         env:
           ASHU_RELEASE_KEYSTORE_BASE64: ${{ secrets.ASHU_RELEASE_KEYSTORE_BASE64 }}
