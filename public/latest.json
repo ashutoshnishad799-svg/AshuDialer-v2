@@ -1,0 +1,6 @@
+{
+  "versionCode": 8,
+  "versionName": "1.5.2",
+  "downloadUrl": "https://github.com/ashutoshnishad799-svg/Ashudialer/releases/download/v1.5.2/AshuPhone-1.5.2.apk",
+  "releaseNotes": "Incoming-call lock-screen/wake reliability fixes and safer update download fallback."
+}

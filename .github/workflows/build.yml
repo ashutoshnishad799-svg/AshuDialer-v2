@@ -1,0 +1,245 @@
+name: Build AshuPhone (APK + Magisk Module)
+
+# Single workflow, single build job: the APK is built and signed exactly
+# once, then the Magisk priv-app module zip is packaged straight from that
+# same signed APK in a later step of the same job. Keeping both outputs in
+# one job (rather than two separate workflows/jobs) guarantees the module
+# always ships the exact same signed build as the APK artifact from this
+# run - never an accidentally mismatched or stale one from a different run.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Create Firebase config from raw GitHub Secret.
+      # IMPORTANT: this secret's value must be the LITERAL, raw contents of
+      # google-services.json (copy-pasted straight from Firebase Console),
+      # NOT base64-encoded - unlike ASHU_RELEASE_KEYSTORE_BASE64 below, which
+      # IS base64 (keystores are binary, JSON isn't, so it never needed that
+      # encoding step). If Google Sign-In isn't working, the first thing to
+      # check is which of these two forms is actually in the
+      # GOOGLE_SERVICES_JSON secret right now - see GOOGLE_SIGNIN_CI_FIX.md
+      # for the full diagnostic steps and the (more likely) non-CI causes:
+      # wrong Firebase Android app / package name, or a missing SHA-1
+      # fingerprint registered against the release keystore.
+      - name: Create google-services.json from secret
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON" ]; then
+            echo "❌ GOOGLE_SERVICES_JSON secret is empty or not set."
+            exit 1
+          fi
+          printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          test -s app/google-services.json
+          # Fail fast with a clear message if the secret's raw content isn't
+          # valid JSON, instead of a confusing Gradle plugin error later -
+          # this is the single most common cause (secret pasted as base64,
+          # or with escaped/mangled quotes from a shell copy-paste).
+          if ! python3 -c "import json; json.load(open('app/google-services.json'))" 2>/dev/null; then
+            echo "❌ google-services.json is not valid JSON."
+            echo "   The GOOGLE_SERVICES_JSON secret must contain the RAW file"
+            echo "   contents copied directly from Firebase Console, not base64"
+            echo "   and not re-encoded. See GOOGLE_SIGNIN_CI_FIX.md."
+            exit 1
+          fi
+
+      # Install Gradle 8.7
+      - name: Generate Gradle Wrapper
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Generate wrapper files
+        run: gradle wrapper --gradle-version 8.7
+
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+
+      # Restore the persistent release keystore from GitHub Secrets.
+      # This is the SAME key every single build - required so a rebuilt
+      # APK is always recognized by Android as an "update" to the
+      # previous install instead of a signature mismatch, and so the
+      # app's cert can build reputation with Play Protect over time
+      # instead of looking like a brand-new throwaway signer each run.
+      - name: Restore release keystore
+        env:
+          ASHU_RELEASE_KEYSTORE_BASE64: ${{ secrets.ASHU_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ASHU_RELEASE_KEYSTORE_BASE64" ]; then
+            echo "❌ ASHU_RELEASE_KEYSTORE_BASE64 secret is empty or not set."
+            echo "   Generate one with: keytool -genkey -v -keystore release.keystore ..."
+            echo "   then: base64 -w0 release.keystore   (paste output as the secret)"
+            exit 1
+          fi
+          printf '%s' "$ASHU_RELEASE_KEYSTORE_BASE64" | base64 -d > app/ashuphone-release.keystore
+          test -s app/ashuphone-release.keystore
+
+      # Build + sign Release APK in one Gradle pass using the restored
+      # keystore. Gradle's own signing pipeline handles zipalign + V2/V3
+      # signing internally, so no separate apksigner/zipalign step is
+      # needed - keeps build and sign as a single source of truth. This
+      # same signed APK is reused below for the Magisk module, so the two
+      # outputs are always built from identical bytes.
+      - name: Build Signed Release APKs
+        env:
+          ASHU_RELEASE_STORE_PASSWORD: ${{ secrets.ASHU_RELEASE_STORE_PASSWORD }}
+          ASHU_RELEASE_KEY_ALIAS: ${{ secrets.ASHU_RELEASE_KEY_ALIAS }}
+          ASHU_RELEASE_KEY_PASSWORD: ${{ secrets.ASHU_RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleNormalRelease assembleRootRelease \
+            -PASHU_RELEASE_STORE_FILE="ashuphone-release.keystore" \
+            -PASHU_RELEASE_STORE_PASSWORD="$ASHU_RELEASE_STORE_PASSWORD" \
+            -PASHU_RELEASE_KEY_ALIAS="$ASHU_RELEASE_KEY_ALIAS" \
+            -PASHU_RELEASE_KEY_PASSWORD="$ASHU_RELEASE_KEY_PASSWORD" \
+            -PASHU_UPDATE_REPO="$GITHUB_REPOSITORY"
+
+      # AGP does not guarantee a single filesystem layout for flavor outputs
+      # (for example, it may use outputs/apk/normal/release rather than
+      # outputs/apk/normalRelease). Do not hard-code the layout here. Find the
+      # actual variant output recursively and copy both release artifacts into
+      # a stable CI staging directory. This fixes the previous CI failure where
+      # the build itself succeeded but the rename step looked in a non-existent
+      # normalRelease directory.
+      - name: Stage normal APK
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+          NORMAL_APK=$(find app/build/outputs/apk -type f -name "*.apk" \
+            -path '*/normal/*' ! -name '*unsigned*' | head -1)
+          if [ -z "$NORMAL_APK" ]; then
+            echo "❌ Normal release APK was not found."
+            echo "Actual APK outputs:"
+            find app/build/outputs/apk -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          cp "$NORMAL_APK" ci-artifacts/AshuPhone-Release-Signed.apk
+          test -s ci-artifacts/AshuPhone-Release-Signed.apk
+          echo "Normal APK: $NORMAL_APK"
+
+      - name: Stage root APK
+        run: |
+          set -euo pipefail
+          ROOT_APK=$(find app/build/outputs/apk -type f -name "*.apk" \
+            -path '*/root/*' ! -name '*unsigned*' | head -1)
+          if [ -z "$ROOT_APK" ]; then
+            echo "❌ Root release APK was not found."
+            echo "Actual APK outputs:"
+            find app/build/outputs/apk -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          cp "$ROOT_APK" ci-artifacts/AshuPhone-Root-Release-Signed.apk
+          test -s ci-artifacts/AshuPhone-Root-Release-Signed.apk
+          echo "Root APK: $ROOT_APK"
+
+      - name: Upload normal APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AshuPhone-Release-Signed
+          path: ci-artifacts/AshuPhone-Release-Signed.apk
+          if-no-files-found: error
+
+      # ==================================================================
+      # Magisk priv-app module - packaged from the exact APK just built
+      # above, so root users always get a module matching this same build.
+      # ==================================================================
+
+      - name: Package privileged Magisk module
+        run: |
+          APK="ci-artifacts/AshuPhone-Root-Release-Signed.apk"
+          test -s "$APK"
+          rm -rf /tmp/magisk/AshuDialer
+          mkdir -p /tmp/magisk/AshuDialer/system/priv-app/AshuDialer
+          mkdir -p /tmp/magisk/AshuDialer/system/etc/permissions
+          cp "$APK" /tmp/magisk/AshuDialer/system/priv-app/AshuDialer/AshuDialer.apk
+          cp magisk-module/module.prop /tmp/magisk/AshuDialer/module.prop
+          cp magisk-module/customize.sh /tmp/magisk/AshuDialer/customize.sh
+          cp magisk-module/post-fs-data.sh /tmp/magisk/AshuDialer/post-fs-data.sh
+          cp magisk-module/action.sh /tmp/magisk/AshuDialer/action.sh
+          cp magisk-module/service.sh /tmp/magisk/AshuDialer/service.sh
+          cp magisk-module/uninstall.sh /tmp/magisk/AshuDialer/uninstall.sh
+          mkdir -p /tmp/magisk/AshuDialer/webroot
+          cp magisk-module/webroot/index.html /tmp/magisk/AshuDialer/webroot/index.html
+          cp magisk-module/system/etc/permissions/privapp-permissions-ashu-dialer.xml \
+             /tmp/magisk/AshuDialer/system/etc/permissions/privapp-permissions-ashu-dialer.xml
+          chmod +x /tmp/magisk/AshuDialer/customize.sh /tmp/magisk/AshuDialer/post-fs-data.sh /tmp/magisk/AshuDialer/action.sh /tmp/magisk/AshuDialer/service.sh /tmp/magisk/AshuDialer/uninstall.sh
+          cd /tmp/magisk/AshuDialer
+          zip -r9 "$GITHUB_WORKSPACE/AshuPhone-Magisk-RootDialer.zip" .
+
+      - name: Verify module zip contents (safety check)
+        run: |
+          echo "== Files inside the module zip =="
+          unzip -l "$GITHUB_WORKSPACE/AshuPhone-Magisk-RootDialer.zip"
+          echo "== Confirming no unexpected top-level files =="
+          unzip -Z1 "$GITHUB_WORKSPACE/AshuPhone-Magisk-RootDialer.zip" | sort > /tmp/actual_files.txt
+          cat <<'EOF' | sort > /tmp/expected_files.txt
+          module.prop
+          customize.sh
+          post-fs-data.sh
+          action.sh
+          service.sh
+          uninstall.sh
+          webroot/
+          webroot/index.html
+          system/
+          system/priv-app/
+          system/priv-app/AshuDialer/
+          system/priv-app/AshuDialer/AshuDialer.apk
+          system/etc/
+          system/etc/permissions/
+          system/etc/permissions/privapp-permissions-ashu-dialer.xml
+          EOF
+          if ! diff -u /tmp/expected_files.txt /tmp/actual_files.txt; then
+            echo "::error::Module zip contains unexpected files - failing the build so this never ships silently."
+            exit 1
+          fi
+          echo "Module zip contents match exactly what was expected."
+
+      - name: Upload Magisk module
+        uses: actions/upload-artifact@v4
+        with:
+          name: AshuPhone-Magisk-RootDialer
+          path: AshuPhone-Magisk-RootDialer.zip
+          if-no-files-found: error
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          if [ -z "$VERSION" ]; then
+            echo "❌ Could not determine versionName from app/build.gradle.kts"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              ci-artifacts/AshuPhone-Release-Signed.apk \
+              ci-artifacts/AshuPhone-Root-Release-Signed.apk \
+              AshuPhone-Magisk-RootDialer.zip \
+              --clobber
+          else
+            gh release create "$TAG" \
+              ci-artifacts/AshuPhone-Release-Signed.apk \
+              ci-artifacts/AshuPhone-Root-Release-Signed.apk \
+              AshuPhone-Magisk-RootDialer.zip \
+              --title "Ashu Phone ${VERSION}" \
+              --generate-notes
+          fi

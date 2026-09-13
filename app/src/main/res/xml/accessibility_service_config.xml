@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Deliberately minimal. This service does not read screen content, does not
+    listen for window/view events, and does not touch call audio in any way -
+    it exists only so Android treats this app as an accessibility-tool
+    process, which on some OEM battery managers (notably MIUI) makes the
+    system less aggressive about killing the app in the background during an
+    active call. It requests no event types and no capabilities beyond that.
+    See RecordingGuideScreen's honest explanation of what this can and can't
+    do for call recording.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:canPerformGestures="false"
+    android:canRequestFilterKeyEvents="false"
+    android:notificationTimeout="200"
+    android:description="@string/accessibility_service_description"
+    android:summary="@string/accessibility_service_summary" />

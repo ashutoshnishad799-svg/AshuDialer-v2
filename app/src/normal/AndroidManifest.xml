@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- The normal distribution must not expose the recording-only accessibility service. -->
+    <application>
+        <service
+            android:name=".telecom.DialerAccessibilityService"
+            tools:node="remove" />
+    </application>
+</manifest>

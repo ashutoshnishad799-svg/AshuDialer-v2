@@ -1,0 +1,381 @@
+package com.ashudialer.app.telecom
+
+import android.Manifest
+import android.app.PictureInPictureParams
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Bundle
+import android.util.Rational
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.addCallback
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.ashudialer.app.AshuDialerApp
+import com.ashudialer.app.data.SignalingSession
+import com.ashudialer.app.ui.screens.VideoCallPhase
+import com.ashudialer.app.ui.screens.VideoCallScreen
+import com.ashudialer.app.ui.theme.AshuDialerTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import org.webrtc.PeerConnection
+import java.util.UUID
+
+
+class VideoCallActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_ROLE = "role"
+        const val EXTRA_CALLEE_NUMBER = "callee_number"
+        const val EXTRA_CALLEE_NAME = "callee_name"
+        const val EXTRA_CALL_ID = "call_id"
+        const val ROLE_CALLER = "caller"
+        const val ROLE_CALLEE = "callee"
+        private const val MAX_VISIBLE_CAPTION_LINES = 6
+
+        fun callerIntent(context: Context, calleeNumber: String, calleeName: String): Intent =
+            Intent(context, VideoCallActivity::class.java).apply {
+                putExtra(EXTRA_ROLE, ROLE_CALLER)
+                putExtra(EXTRA_CALLEE_NUMBER, calleeNumber)
+                putExtra(EXTRA_CALLEE_NAME, calleeName)
+                putExtra(EXTRA_CALL_ID, UUID.randomUUID().toString())
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+
+        fun calleeIntent(context: Context, callId: String, callerName: String): Intent =
+            Intent(context, VideoCallActivity::class.java).apply {
+                putExtra(EXTRA_ROLE, ROLE_CALLEE)
+                putExtra(EXTRA_CALL_ID, callId)
+                putExtra(EXTRA_CALLEE_NAME, callerName)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+    }
+
+
+    private var cameraPermissionResult = mutableStateOf<Boolean?>(null)
+    private val requestCameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> cameraPermissionResult.value = granted }
+
+    private val isInPipMode = mutableStateOf(false)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+
+        // Pressing back used to finish() this activity outright, which tore
+        // the WebRTC session down with it (see WebRtcCallManager.release()
+        // in the DisposableEffect below). Entering picture-in-picture
+        // instead shrinks the call into a small floating window that keeps
+        // running - the same gesture WhatsApp/Meet use. Falls through to
+        // the normal back behaviour only if PiP genuinely can't be entered
+        // (declined by the OEM build).
+        onBackPressedDispatcher.addCallback(this) {
+            if (!enterPipIfPossible()) {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+            }
+        }
+
+        val app = application as AshuDialerApp
+        val role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_CALLER
+        val callId = intent.getStringExtra(EXTRA_CALL_ID) ?: UUID.randomUUID().toString()
+        val displayName = intent.getStringExtra(EXTRA_CALLEE_NAME) ?: "Unknown"
+        val calleeNumber = intent.getStringExtra(EXTRA_CALLEE_NUMBER) ?: ""
+
+
+        val localUid = app.authRepository.currentUserUidOrNull()
+
+        setContent {
+            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
+            val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = com.ashudialer.app.data.AppSettings())
+
+            var phase by remember { mutableStateOf(VideoCallPhase.CONNECTING) }
+            var remoteVideoTrack by remember { mutableStateOf<org.webrtc.VideoTrack?>(null) }
+            var remoteAudioTrack by remember { mutableStateOf<org.webrtc.AudioTrack?>(null) }
+            var isMicEnabled by remember { mutableStateOf(true) }
+            var isCameraEnabled by remember { mutableStateOf(true) }
+            var remoteUidResolved by remember { mutableStateOf<String?>(null) }
+            var callManager by remember { mutableStateOf<WebRtcCallManager?>(null) }
+            var notSignedInMessage by remember { mutableStateOf<String?>(null) }
+
+            // Live captions: only ever attempted on this WebRTC/data call
+            // path, and only once the model for the chosen language is
+            // already downloaded (see CaptionModelManager) - captions never
+            // trigger a download themselves mid-call, since starting a
+            // 30-60 second download the instant a call connects would make
+            // the person wait on their captions instead of just talking.
+            // If the model isn't ready, captionLines simply stays empty and
+            // the call proceeds completely normally with no captions UI,
+            // rather than blocking or nagging about the missing download.
+            val captionLanguage = remember(settings.captionLanguage) {
+                CaptionLanguage.entries.find { it.name == settings.captionLanguage } ?: CaptionLanguage.ENGLISH_INDIA
+            }
+            var captionLines by remember { mutableStateOf<List<CaptionLine>>(emptyList()) }
+
+            // Type-to-talk needs no model download and no flavor gating
+            // (see TypeToTalkEngine's class doc) - it can always exist once
+            // this screen is up, independent of whether the person has it
+            // turned on; sendTypedMessage below is what actually gates on
+            // settings.typeToTalkEnabled before doing anything.
+            val typeToTalkEngine = remember { TypeToTalkEngine(this@VideoCallActivity) }
+            var typedMessages by remember { mutableStateOf<List<TypedMessage>>(emptyList()) }
+            DisposableEffect(Unit) {
+                typeToTalkEngine.setOnMessageStateChanged { updated ->
+                    typedMessages = typedMessages.map { if (it.id == updated.id) it.copy(isSpeaking = updated.isSpeaking) else it }
+                }
+                onDispose { typeToTalkEngine.release() }
+            }
+            fun sendTypedMessage(text: String) {
+                if (!settings.typeToTalkEnabled || text.isBlank()) return
+                val id = typeToTalkEngine.speak(text)
+                typedMessages = (typedMessages + TypedMessage(id, text.trim(), isSpeaking = false)).takeLast(MAX_VISIBLE_CAPTION_LINES)
+            }
+
+            val hasCameraPermission = cameraPermissionResult.value
+                ?: (ContextCompat.checkSelfPermission(this@VideoCallActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+
+            LaunchedEffect(Unit) {
+                if (!hasCameraPermission) {
+                    requestCameraPermission.launch(Manifest.permission.CAMERA)
+                }
+            }
+
+            LaunchedEffect(cameraPermissionResult.value) {
+                if (cameraPermissionResult.value == false) {
+                    notSignedInMessage = "Camera access is needed for video calls. You can allow it from your phone's app settings."
+                    phase = VideoCallPhase.FAILED
+                }
+            }
+
+            val sameCarrierHint by produceState<String?>(initialValue = null) {
+                val myCarrier = CarrierDetector.currentCarrierId(this@VideoCallActivity)
+                value = if (myCarrier != null) {
+                    "On ${CarrierDetector.currentCarrierDisplayName(this@VideoCallActivity) ?: "your carrier"} — connecting over the internet"
+                } else null
+            }
+
+
+            DisposableEffect(hasCameraPermission) {
+                if (localUid == null) {
+                    notSignedInMessage = "Sign in from More → Account to make video calls."
+                    phase = VideoCallPhase.FAILED
+                    return@DisposableEffect onDispose {}
+                }
+                if (!hasCameraPermission) {
+
+
+                    return@DisposableEffect onDispose {}
+                }
+
+                this@VideoCallActivity.lifecycleScope.launch {
+
+
+                    val myNumber = app.appSettingsRepository.settingsFlow.first().myPhoneNumber
+                    if (myNumber.isNotBlank()) {
+                        app.videoCallSignalingRepository.publishPhoneDirectoryEntry(localUid, myNumber)
+                    }
+
+                    val resolvedRemoteUid = when (role) {
+                        ROLE_CALLER -> app.videoCallSignalingRepository.resolveUidForNumber(calleeNumber)
+                        else -> null
+                    }
+
+                    if (role == ROLE_CALLER && resolvedRemoteUid == null) {
+                        notSignedInMessage = "$displayName hasn't set up video calling yet."
+                        phase = VideoCallPhase.FAILED
+                        return@launch
+                    }
+
+                    val manager = WebRtcCallManager(
+                        context = this@VideoCallActivity,
+                        signaling = app.videoCallSignalingRepository,
+                        scope = this@VideoCallActivity.lifecycleScope,
+                        callId = callId,
+                        localUid = localUid,
+                        remoteUid = resolvedRemoteUid ?: "",
+                        onEvent = { event ->
+                            when (event) {
+                                is WebRtcCallEvent.RemoteStreamAdded -> {
+                                    remoteVideoTrack = event.stream.videoTracks.firstOrNull()
+                                    remoteAudioTrack = event.stream.audioTracks.firstOrNull()
+                                }
+                                is WebRtcCallEvent.ConnectionStateChanged -> {
+                                    phase = when (event.state) {
+                                        PeerConnection.PeerConnectionState.CONNECTED -> VideoCallPhase.ACTIVE
+                                        PeerConnection.PeerConnectionState.DISCONNECTED -> VideoCallPhase.RECONNECTING
+                                        PeerConnection.PeerConnectionState.FAILED -> VideoCallPhase.FAILED
+                                        PeerConnection.PeerConnectionState.CLOSED -> VideoCallPhase.ENDED
+                                        else -> phase
+                                    }
+                                }
+                            }
+                        }
+                    )
+                    manager.initialize()
+                    callManager = manager
+
+                    if (role == ROLE_CALLER) {
+                        val myCarrier = CarrierDetector.currentCarrierId(this@VideoCallActivity)
+                        manager.createAndSendOffer(calleeNumber, myCarrier)
+                        phase = VideoCallPhase.RINGING_REMOTE
+                    }
+
+                }
+
+                onDispose {
+                    callManager?.release()
+                }
+            }
+
+            // Captions only ever start here, on the WebRTC/data-call path -
+            // see the comment on captionLines above for why the Root/normal-
+            // carrier-call caption path (a separate, root-only feature) is
+            // never reachable through this Activity at all: VideoCallActivity
+            // is the WebRTC call screen specifically, so there is no carrier
+            // audio to tap here in the first place.
+            LaunchedEffect(remoteAudioTrack, settings.liveCaptionsEnabled, captionLanguage) {
+                val track = remoteAudioTrack
+                if (track == null || !settings.liveCaptionsEnabled) {
+                    captionLines = emptyList()
+                    return@LaunchedEffect
+                }
+                val modelManager = app.captionModelManager
+                if (!modelManager.isDownloaded(captionLanguage)) {
+                    // Deliberately does not trigger a download here - see
+                    // the comment on captionLines above. The Settings
+                    // screen is the only place a caption-model download
+                    // starts (CaptionSettingsScreen), so a person who
+                    // enabled captions but hasn't finished that download
+                    // yet just gets a normal, caption-free call rather
+                    // than an unexpected mid-call download.
+                    return@LaunchedEffect
+                }
+                var loadedModel: org.vosk.Model? = null
+                modelManager.ensureReady(captionLanguage) { state ->
+                    if (state is CaptionModelState.Ready) loadedModel = state.model
+                }
+                val model = loadedModel ?: return@LaunchedEffect
+                val engine = CallCaptionEngine(model)
+                WebRtcCaptionSource.captions(track, engine).collect { line ->
+                    captionLines = (captionLines + line)
+                        // Keeps only the most recent lines on screen - an
+                        // hour-long call would otherwise grow this list for
+                        // the entire duration even though the caption
+                        // overlay (see VideoCallScreen) only ever shows the
+                        // last few lines at once.
+                        .takeLast(MAX_VISIBLE_CAPTION_LINES)
+                }
+            }
+
+
+            LaunchedEffect(callId, localUid) {
+                if (localUid == null) return@LaunchedEffect
+                app.videoCallSignalingRepository.observeCall(callId).collect { session ->
+                    if (session == null) return@collect
+                    when (session.status) {
+                        SignalingSession.STATUS_RINGING -> {
+                            if (role == ROLE_CALLEE && session.offerSdp != null && remoteUidResolved == null) {
+                                remoteUidResolved = session.callerUid
+                                callManager?.receiveOfferAndSendAnswer(session.offerSdp)
+                            }
+                        }
+                        SignalingSession.STATUS_ACCEPTED -> {
+                            if (role == ROLE_CALLER && session.answerSdp != null && phase == VideoCallPhase.RINGING_REMOTE) {
+                                callManager?.applyRemoteAnswer(session.answerSdp)
+                            }
+                        }
+                        SignalingSession.STATUS_DECLINED, SignalingSession.STATUS_ENDED -> {
+                            phase = VideoCallPhase.ENDED
+                            finish()
+                        }
+                    }
+                }
+            }
+
+            fun endCall() {
+                this@VideoCallActivity.lifecycleScope.launch {
+                    app.videoCallSignalingRepository.updateStatus(callId, SignalingSession.STATUS_ENDED)
+                    localUid?.let { app.videoCallSignalingRepository.teardown(callId, it) }
+                }
+                finish()
+            }
+
+            AshuDialerTheme(themeId = themeId, fontSizeIndex = settings.fontSizeIndex) {
+                // Same fix as InCallActivity - VideoCallActivity shares
+                // Theme.AshuDialer.Call (see AndroidManifest.xml) but, being
+                // a separate Activity with its own setContent, needs its own
+                // runtime status bar icon-color sync rather than inheriting
+                // InCallActivity's.
+                val palette = com.ashudialer.app.ui.theme.LocalDialerPalette.current
+                val view = androidx.compose.ui.platform.LocalView.current
+                LaunchedEffect(palette.isDark) {
+                    androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                        isAppearanceLightStatusBars = !palette.isDark
+                        isAppearanceLightNavigationBars = !palette.isDark
+                    }
+                }
+
+                VideoCallScreen(
+                    callerName = displayName,
+                    phase = phase,
+                    eglBaseContext = callManager?.eglBase?.eglBaseContext,
+                    localVideoTrack = callManager?.localVideoTrack,
+                    remoteVideoTrack = remoteVideoTrack,
+                    isMicEnabled = isMicEnabled,
+                    isCameraEnabled = isCameraEnabled,
+                    sameCarrierHint = notSignedInMessage ?: sameCarrierHint,
+                    captionLines = captionLines,
+                    captionsAvailable = settings.liveCaptionsEnabled,
+                    typeToTalkAvailable = settings.typeToTalkEnabled,
+                    typedMessages = typedMessages,
+                    onSendTypedMessage = { sendTypedMessage(it) },
+                    onToggleMic = {
+                        isMicEnabled = !isMicEnabled
+                        callManager?.setMicEnabled(isMicEnabled)
+                    },
+                    onToggleCamera = {
+                        isCameraEnabled = !isCameraEnabled
+                        callManager?.setCameraEnabled(isCameraEnabled)
+                    },
+                    onSwitchCamera = { callManager?.switchCamera() },
+                    onEndCall = { endCall() },
+                    isInPip = isInPipMode.value
+                )
+            }
+        }
+    }
+
+    private fun enterPipIfPossible(): Boolean = try {
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(9, 16))
+            .build()
+        enterPictureInPictureMode(params)
+    } catch (e: Exception) {
+        false
+    }
+
+    // Covers leaving via Home/Recents - the onBackPressedDispatcher callback
+    // in onCreate covers Back. Together, every way of leaving this screen
+    // keeps the call running in a floating window instead of ending it.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        enterPipIfPossible()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        isInPipMode.value = isInPictureInPictureMode
+    }
+}

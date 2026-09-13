@@ -1,0 +1,1076 @@
+package com.ashudialer.app.telecom
+
+import android.app.KeyguardManager
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.os.SystemClock
+import android.telecom.Call
+import android.util.Log
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.lifecycleScope
+import com.ashudialer.app.AshuDialerApp
+import com.ashudialer.app.R
+import com.ashudialer.app.data.AppSettings
+import com.ashudialer.app.data.db.CallDirection
+import com.ashudialer.app.ui.screens.CallScreen
+import com.ashudialer.app.ui.screens.IncomingCallScreen
+import com.ashudialer.app.ui.theme.AshuDialerTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+class InCallActivity : ComponentActivity() {
+
+    // Set when this Activity was launched specifically to answer a call on
+    // the person's behalf (see CallActionReceiver.ACTION_ANSWER) rather than
+    // just to show the ringing screen and wait for a manual tap on the
+    // in-app Answer button. A mutableStateOf here - not a plain var - is
+    // what lets the Composable tree below actually react to it, including
+    // the onNewIntent case where the value changes after setContent has
+    // already run once.
+    //
+    // consumeAutoAnswer() (not a second boolean flag, and not immediately
+    // clearing this in onNewIntent) is what current.answer() is gated on
+    // inside setContent's LaunchedEffect(call, pendingAutoAnswer) - answering
+    // requires an actual Call object, which is not guaranteed to exist yet
+    // the instant this Activity starts (see the existing call==null retry
+    // loop a little further down in this file), so the flag has to survive
+    // until that LaunchedEffect can act on it, then be consumed exactly
+    // once so a later recomposition can never answer a second, unrelated
+    // call using a stale true value.
+    private var pendingAutoAnswer by mutableStateOf(false)
+
+    private fun consumeAutoAnswer(): Boolean {
+        val value = pendingAutoAnswer
+        pendingAutoAnswer = false
+        return value
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_AUTO_ANSWER, false)) {
+            pendingAutoAnswer = true
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (intent.getBooleanExtra(EXTRA_AUTO_ANSWER, false)) {
+            pendingAutoAnswer = true
+        }
+        // Apply lock-screen visibility/wake behavior immediately, before the
+        // first Compose frame. This is especially important when Telecom
+        // launches us from a locked, sleeping device. The manifest flags are
+        // kept as a second layer, but doing it here removes the small race
+        // where the activity could be created before those window attributes
+        // were reflected in the live window.
+        setupLockScreenAndWakeFlags(false)
+        val app = application as AshuDialerApp
+        // Same reasoning as MainActivity: without this, the status and
+        // navigation bars are opaque system-default bars the call screen's
+        // own gradient/aurora background can never show through, no matter
+        // what the insets-controller icon-color logic further down does.
+        enableEdgeToEdge()
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+
+        // THE FIX for "brief blue flash placing a call on Black theme (or
+        // any theme other than Ocean)": Theme.AshuDialer.Call's static XML
+        // windowBackground used to be call_window_background.xml, a single
+        // hardcoded light-blue color (Ocean's own background) - the color
+        // painted by the system compositor for the brief gap before this
+        // window's first Compose frame draws. Every theme other than Ocean
+        // (Black/Dark Mode included) flashed that wrong, unrelated color for
+        // a fraction of a second before snapping to the real theme.
+        //
+        // Setting the window background here at runtime, using the actual
+        // active theme's own solid background color, replaces that one
+        // hardcoded placeholder - the compositor now paints the *correct*
+        // theme's color for that same brief gap, so there's nothing to
+        // "snap away from" once Compose's first frame lands. Deliberately
+        // reads ThemePreference's synchronous, NEVER-BLOCKING SharedPreferences
+        // mirror (peekLastKnownThemeId) rather than themeIdFlow: the DataStore
+        // flow is async and collecting it here would mean either blocking
+        // this thread (an earlier version of this code did exactly that with
+        // a runBlocking fallback, and it's what caused intermittent
+        // open/answer-time hangs - see peekLastKnownThemeId's doc comment) or
+        // drawing this first frame with no theme info at all. Worst case here
+        // (mirror not populated yet) is a one-frame "ocean" placeholder
+        // instead of a hang - the ColorDrawable set below is only ever
+        // visible for that same brief pre-first-frame gap; setContent's own
+        // Compose tree (using the real themeIdFlow value, which can only ever
+        // be equal or more current) draws over it immediately after.
+        val syncedThemeId = com.ashudialer.app.data.ThemePreference.peekLastKnownThemeId(this)
+        val placeholderColor = com.ashudialer.app.ui.theme.paletteById(syncedThemeId).solidBackground
+        window.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(placeholderColor.toArgb())
+        )
+
+        lifecycleScope.launch {
+            val disableProximitySensor = runCatching {
+                app.appSettingsRepository.settingsFlow.first().disableProximitySensor
+            }.getOrDefault(false)
+            if (disableProximitySensor) setupLockScreenAndWakeFlags(true)
+        }
+
+
+        val backPressCallback = object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                PixelInCallService.currentCall?.disconnect()
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        }
+        onBackPressedDispatcher.addCallback(this, backPressCallback)
+
+        // Fast, subtle activity entrance. The old implementation disabled all
+        // platform transitions, so even a perfectly smooth Compose tree still
+        // arrived as a hard cut. The preview window is disabled in the theme,
+        // so this animation starts from the previous screen without exposing
+        // the old blue application preview.
+        applyCallEnterTransition()
+
+        setContent {
+            // "ocean" here (not "gradient") to match ThemePreference's own
+            // steady-state default - this is only the placeholder shown for
+            // the brief instant before the real DataStore value loads, but
+            // an in-call screen is exactly the moment a themed flash is
+            // most visible, so it should match the app's actual default
+            // rather than a different, unrelated palette.
+            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
+            val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = AppSettings())
+
+            // Keep the in-call Activity opaque for its whole lifetime. The
+            // correctly themed window background remains underneath Compose,
+            // preventing Telecom/OEM transitions from exposing the previous
+            // Activity or a system-colored surface.
+            LaunchedEffect(settings.backEndsCall) {
+                backPressCallback.isEnabled = settings.backEndsCall
+            }
+
+            var call by remember { mutableStateOf(PixelInCallService.currentCall) }
+            var callState by remember { mutableStateOf(call?.state) }
+            var hasSecondCall by remember { mutableStateOf(PixelInCallService.hasMultipleCalls) }
+            var canMergeCalls by remember { mutableStateOf(PixelInCallService.canMergeCalls()) }
+            var canSwapCalls by remember { mutableStateOf(PixelInCallService.canSwapCalls()) }
+            // Set the instant the person taps "End call", before Telecom's
+            // own STATE_DISCONNECTED has actually arrived - purely a local,
+            // optimistic UI flag so the end-call button gives immediate
+            // visual feedback (disabling itself / showing "Ending...")
+            // rather than looking unresponsive for however long the real
+            // Telecom/carrier-side disconnect takes to come back. Does not
+            // skip or fake the real disconnect - current.disconnect() is
+            // still called normally right after, and callState/finish()
+            // still only act on the real STATE_DISCONNECTED once it lands.
+            var isEndingCall by remember { mutableStateOf(false) }
+            var isRecording by remember { mutableStateOf(com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && app.callRecorder.isRecording) }
+            // Live captions on THIS screen (a real carrier/SIM call) only
+            // ever run on the root build - see CallCaptionEngine's class
+            // doc and CaptionSettingsScreen's explanation text for why the
+            // Normal build has no equivalent here at all. VideoCallActivity
+            // is the separate WebRTC call screen and has its own,
+            // always-available caption wiring.
+            var captionLines by remember { mutableStateOf<List<CaptionLine>>(emptyList()) }
+
+            // Type-to-talk works identically here as on the WebRTC call
+            // screen (VideoCallActivity) - it only ever produces audio into
+            // the call via TTS, never reads the other party's audio, so it
+            // needs no BuildConfig/root gating at all (see TypeToTalkEngine's
+            // class doc).
+            val typeToTalkEngine = remember { TypeToTalkEngine(this@InCallActivity) }
+            var typedMessages by remember { mutableStateOf<List<TypedMessage>>(emptyList()) }
+            DisposableEffect(Unit) {
+                typeToTalkEngine.setOnMessageStateChanged { updated ->
+                    typedMessages = typedMessages.map { if (it.id == updated.id) it.copy(isSpeaking = updated.isSpeaking) else it }
+                }
+                onDispose { typeToTalkEngine.release() }
+            }
+            fun sendTypedMessage(text: String) {
+                if (!settings.typeToTalkEnabled || text.isBlank()) return
+                val id = typeToTalkEngine.speak(text)
+                typedMessages = (typedMessages + TypedMessage(id, text.trim(), isSpeaking = false)).takeLast(6)
+            }
+            var isMuted by remember { mutableStateOf(CallAudioQuickActions.isMuted(this@InCallActivity)) }
+            var recordingMode by remember { mutableStateOf(app.callRecorder.currentMode()) }
+            var recordingSeconds by remember { mutableStateOf(app.callRecorder.elapsedSeconds()) }
+            // True once recording has run silent (no getMaxAmplitude signal
+            // above the noise floor) for several consecutive polls in a
+            // row. A single quiet poll doesn't set this - normal calls have
+            // real pauses in speech - only a sustained run of silence does,
+            // which is what actually indicates the audio path died rather
+            // than someone just not talking for a second.
+            var recordingLooksSilent by remember { mutableStateOf(false) }
+            // Surfaces AudioManager.isMicrophoneMute() while recording is
+            // active - confirmed directly against a real silent recording
+            // (VOICE_UPLINK and even plain MIC both producing 13+ seconds
+            // of digital silence on a 14-second call, with real audio
+            // only appearing in roughly the last second as the call tore
+            // down) that this device's telephony stack holds exclusive
+            // control of the microphone path for the call's entire
+            // duration, independent of which AudioSource this app's own
+            // MediaRecorder requests. isMicrophoneMute() reflects that
+            // system-level state directly rather than this app having to
+            // infer it indirectly from amplitude alone - if this reads
+            // true while recording is running, that is the actual
+            // explanation, not a bug in source selection or retry logic.
+            var micIsSystemMuted by remember { mutableStateOf(false) }
+            var showNoteDialog by remember { mutableStateOf(false) }
+            var showAddCallDialog by remember { mutableStateOf(false) }
+            var addCallContacts by remember { mutableStateOf(emptyList<com.ashudialer.app.data.Contact>()) }
+            val loggedOutgoingNumbers = remember { mutableSetOf<String>() }
+
+            LaunchedEffect(showAddCallDialog) {
+                if (showAddCallDialog) {
+                    addCallContacts = runCatching { app.contactsRepository.loadAllContacts() }
+                        .getOrDefault(emptyList())
+                        .sortedBy { it.displayName.lowercase() }
+                }
+            }
+
+            val audioRouteController = remember { AudioRouteController(this@InCallActivity) }
+            // Reactive, Telecom-confirmed state (see PixelInCallService's
+            // onCallAudioStateChanged) rather than an optimistic snapshot
+            // read right after requesting a route change or only refreshed
+            // as a side effect of unrelated call-state events. This is what
+            // fixes the speaker icon sometimes not matching the real route.
+            val currentRoute by PixelInCallService.currentAudioRouteFlow.collectAsState()
+            val availableRoutes by PixelInCallService.availableAudioRoutesFlow.collectAsState()
+
+
+            val dtmfPlayer = remember { DtmfPlayer() }
+            DisposableEffect(Unit) { onDispose { dtmfPlayer.release() } }
+            fun sendDtmf(digit: Char) {
+                dtmfPlayer.play(digit)
+                val active = PixelInCallService.currentCall ?: return
+                try {
+                    active.playDtmfTone(digit)
+                    active.stopDtmfTone()
+                } catch (_: Exception) {
+
+
+                }
+            }
+
+            DisposableEffect(Unit) {
+                val listener: () -> Unit = {
+                    call = PixelInCallService.currentCall
+                    callState = call?.state
+                    hasSecondCall = PixelInCallService.hasMultipleCalls
+                    canMergeCalls = PixelInCallService.canMergeCalls()
+                    canSwapCalls = PixelInCallService.canSwapCalls()
+                    isMuted = runCatching { CallAudioQuickActions.isMuted(this@InCallActivity) }
+                        .getOrDefault(false)
+                }
+                PixelInCallService.addCallListener(listener)
+                onDispose { PixelInCallService.removeCallListener(listener) }
+            }
+
+
+            LaunchedEffect(call) {
+                // Safety-net polling for when Call.Callback's event-driven
+                // onStateChanged (see PixelInCallService.notifyListeners)
+                // doesn't fire promptly - normally it does, so this loop
+                // rarely does real work, but it's the fallback that catches
+                // a state change if that callback is ever delayed. Interval
+                // tightened from 500ms to 150ms: on "End call", the person
+                // taps immediately and any residual gap between Telecom
+                // actually disconnecting and this activity noticing (and
+                // closing) reads as call-end lag - a worst-case 500ms
+                // fallback-detection window was a meaningful chunk of that
+                // perceived delay by itself, on top of whatever genuine
+                // carrier/Telecom-side latency exists and can't be
+                // controlled from here.
+                while (call != null) {
+                    kotlinx.coroutines.delay(150)
+                    val liveCall = PixelInCallService.currentCall
+                    val liveState = liveCall?.state
+                    if (liveCall !== call) call = liveCall
+                    if (liveState != null && liveState != callState) callState = liveState
+                    hasSecondCall = PixelInCallService.hasMultipleCalls
+                    canMergeCalls = PixelInCallService.canMergeCalls()
+                    canSwapCalls = PixelInCallService.canSwapCalls()
+                }
+            }
+
+
+            LaunchedEffect(callState) {
+                if (callState == Call.STATE_DISCONNECTED) {
+                    // THE ACTUAL FIX for the black screen after a call ends:
+                    // this used to call app.callRecorder.stop() and AWAIT it
+                    // (a plain blocking function, not a suspend function)
+                    // before calling finish() on the same line. MediaRecorder
+                    // .stop() is well documented to block for a noticeable
+                    // moment while it flushes/finalizes the encoder - worse
+                    // on short recordings (confirmed via AOSP's own
+                    // MediaRecorder CTS test, which had to add a manual delay
+                    // after stop() specifically for short-duration clips).
+                    // Since this whole block runs as a coroutine on
+                    // Dispatchers.Main (LaunchedEffect's default), that
+                    // blocking call froze the *entire* UI thread - not just
+                    // recording logic - for however long stop() took,
+                    // directly explaining the 1-3+ second gap between the
+                    // DISCONNECTED state arriving and finish() actually
+                    // running (confirmed in logcat: DISCONNECTED at
+                    // 08:33:54.749, but the activity's CLOSE window
+                    // transition didn't start until 08:33:57.059 - a 2.3s
+                    // freeze, not an animation or windowBackground issue).
+                    // finish() and the transition override now run first and
+                    // immediately, so the screen closes the instant the call
+                    // actually ends; the recorder is stopped and saved on a
+                    // background dispatcher afterward, fully decoupled from
+                    // this activity's lifecycle so a slow encoder flush can
+                    // never block anything the person can see again.
+                    //
+                    // If the black screen is STILL happening after both this
+                    // fix and the fade_out transition fix, the remaining
+                    // candidate is a layer neither of those touches: this
+                    // activity uses showWhenLocked/turnScreenOn (see
+                    // setupLockScreenAndWakeFlags) so it can appear over the
+                    // lock screen. When it finishes while the device is
+                    // still actually locked, handing back to the real lock
+                    // screen is a SEPARATE transition owned by SystemUI/
+                    // WindowManagerService, not by this activity's own
+                    // window - overridePendingTransitionCompat() only
+                    // controls this activity's own close animation, it has
+                    // no influence over whatever SystemUI paints while
+                    // re-presenting the keyguard underneath. MIUI's keyguard
+                    // transition is heavier than stock AOSP's and a brief
+                    // black frame during that specific hand-off would look
+                    // identical to what's already been fixed here, while
+                    // having a completely different, OS-level cause this
+                    // app can't directly control.
+                    // isKeyguardLockedNow is logged so a fresh logcat can
+                    // confirm or rule this out directly: if the black screen
+                    // only happens on calls where this logs true, that's the
+                    // keyguard hand-off, not this activity. setShowWhenLocked
+                    // (false) right before finish() is a low-risk, reversible
+                    // attempt at a smoother hand-off - it tells WindowManager
+                    // this window no longer needs special keyguard treatment
+                    // a moment before it closes, rather than closing a
+                    // still-showWhenLocked window and leaving WindowManager
+                    // to sort out the keyguard state after the fact.
+                    val keyguardManager = getSystemService(KeyguardManager::class.java)
+                    val isKeyguardLockedNow = keyguardManager?.isKeyguardLocked ?: false
+                    Log.i("InCallActivity", "DISCONNECTED at ${SystemClock.elapsedRealtime()} - isKeyguardLocked=$isKeyguardLockedNow - calling finish() now")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        try { setShowWhenLocked(false) } catch (_: Throwable) {}
+                    }
+                    finish()
+                    overridePendingTransitionCompat()
+                    Log.i("InCallActivity", "finish() returned at ${SystemClock.elapsedRealtime()}")
+                    if (app.callRecorder.isRecording) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            app.callRecorder.stop()
+                        }
+                    }
+                }
+            }
+
+            LaunchedEffect(call) {
+                // Telecom can deliver onCallAdded and the activity launch on
+                // adjacent main-thread turns. Do not finish the call UI just
+                // because the first composition happened before the service
+                // listener populated currentCall; that race made the custom
+                // screen disappear and left the stock dialer UI on some OEMs.
+                if (call == null) {
+                    repeat(20) {
+                        kotlinx.coroutines.delay(100)
+                        val pending = PixelInCallService.currentCall
+                        if (pending != null) {
+                            call = pending
+                            callState = pending.state
+                            return@LaunchedEffect
+                        }
+                    }
+                    // Same finish()-before-stop() ordering fix as the
+                    // STATE_DISCONNECTED branch above, and for the identical
+                    // reason: don't let a blocking MediaRecorder.stop() call
+                    // hold this screen open and frozen after the decision to
+                    // close it has already been made.
+                    val keyguardManager2 = getSystemService(KeyguardManager::class.java)
+                    val isKeyguardLockedNow2 = keyguardManager2?.isKeyguardLocked ?: false
+                    Log.i("InCallActivity", "call==null timeout at ${SystemClock.elapsedRealtime()} - isKeyguardLocked=$isKeyguardLockedNow2 - calling finish() now")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        try { setShowWhenLocked(false) } catch (_: Throwable) {}
+                    }
+                    finish()
+                    overridePendingTransitionCompat()
+                    Log.i("InCallActivity", "finish() returned at ${SystemClock.elapsedRealtime()}")
+                    if (isRecording) {
+                        isRecording = false
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            app.callRecorder.stop()
+                        }
+                    }
+                }
+            }
+
+            // Performs the actual answer requested by CallActionReceiver's
+            // notification-tap path (see EXTRA_AUTO_ANSWER / pendingAutoAnswer
+            // above). Keyed on both `call` and `pendingAutoAnswer` - not just
+            // one of them - because either can arrive first: a fresh launch
+            // usually has the flag set before `call` is populated (the retry
+            // loop above fills `call` in a moment), while onNewIntent firing
+            // on an Activity that was already showing the ringing screen has
+            // `call` populated well before the new intent (and therefore the
+            // flag) arrives. Only fires while callState is actually
+            // STATE_RINGING - if the caller hung up in the moment between the
+            // notification tap and this Activity resolving a live Call, there
+            // is nothing left to answer, and answer()ing a call that already
+            // moved to another state is not a meaningful action.
+            LaunchedEffect(call, pendingAutoAnswer, callState) {
+                if (pendingAutoAnswer && call != null && callState == Call.STATE_RINGING) {
+                    val current = call ?: return@LaunchedEffect
+                    consumeAutoAnswer()
+                    current.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                    logCallAsync(
+                        app,
+                        current.details?.handle?.schemeSpecificPart ?: "Unknown",
+                        current.details?.callerDisplayName ?: current.details?.handle?.schemeSpecificPart ?: "Unknown",
+                        CallDirection.INCOMING
+                    )
+                }
+            }
+
+            LaunchedEffect(isRecording, callState) {
+                if (!isRecording) return@LaunchedEffect
+                var quietPollsInARow = 0
+                while (app.callRecorder.isRecording) {
+                    recordingSeconds = app.callRecorder.elapsedSeconds()
+                    recordingMode = app.callRecorder.currentMode()
+                    isRecording = true
+                    // Only start judging silence once elapsedSeconds > 2 -
+                    // the very first couple of polls can legitimately read
+                    // near-zero simply because the encoder hasn't flushed
+                    // its first real audio frame yet, which isn't the same
+                    // failure this is meant to catch.
+                    if (recordingSeconds > 2) {
+                        val amplitude = app.callRecorder.currentAmplitude()
+                        if (amplitude <= 15) {
+                            quietPollsInARow++
+                        } else {
+                            quietPollsInARow = 0
+                        }
+                        // ~6 seconds of continuous silence (500ms poll x 12)
+                        // before flagging - long enough that a normal pause
+                        // in conversation won't trip it, short enough that
+                        // the person still finds out mid-call rather than
+                        // only after listening back afterward.
+                        recordingLooksSilent = quietPollsInARow >= 12
+
+                        // Check the actual system mic-mute state once
+                        // silence has run long enough to be worth
+                        // investigating, rather than every single poll -
+                        // this is a real system call (AudioManager),
+                        // cheap but no reason to run it every 500ms when
+                        // there's real signal.
+                        if (quietPollsInARow >= 8) {
+                            micIsSystemMuted = try {
+                                val am = getSystemService(AUDIO_SERVICE) as? android.media.AudioManager
+                                am?.isMicrophoneMute == true
+                            } catch (_: Throwable) {
+                                false
+                            }
+                        } else {
+                            micIsSystemMuted = false
+                        }
+
+                        // At ~4 seconds (500ms poll x 8), attempt one
+                        // capped mid-call restart onto the next fallback
+                        // source - confirmed necessary on at least one
+                        // real device where VOICE_UPLINK opens and starts
+                        // cleanly (so it isn't caught by any upfront
+                        // probe) but produces genuine silence for the
+                        // whole call, with real audio only appearing in
+                        // roughly the last second as the call tears down.
+                        // Lowered from the original 8-second threshold
+                        // (poll x 16): on a short call - confirmed
+                        // directly on a ~15-second test call - the old
+                        // threshold left less than a second of margin
+                        // before the call could end first, so the
+                        // recording captured silence start-to-finish with
+                        // real audio only in literally the last 1-2
+                        // seconds during teardown. 4 seconds still safely
+                        // clears the >2-second startup grace period above
+                        // and the required run of quiet polls, while
+                        // leaving enough of even a short call to actually
+                        // benefit from the switch. restartOnSustainedSilence()
+                        // itself caps this to once per call and only acts
+                        // if the source has produced literally zero signal
+                        // since it started (not just this poll window), so
+                        // a real quiet moment in an actual conversation
+                        // can't trigger it - only a source that has
+                        // carried no audio at all so far can. NOTE:
+                        // confirmed on a real device that this restart
+                        // alone is not sufficient when the block is
+                        // system-wide (MIC also came back silent after a
+                        // restart from VOICE_UPLINK) - micIsSystemMuted
+                        // above is what actually explains that case; the
+                        // restart still helps on devices where only the
+                        // specific privileged source (not MIC) is the
+                        // problem. Beyond this call, CallRecorder.start()
+                        // now also remembers a confirmed-silent source
+                        // permanently (see markSourceKnownSilent) so
+                        // future calls skip straight past it instead of
+                        // re-losing time to it on every call.
+                        if (quietPollsInARow >= 8) {
+                            val switchedTo = app.callRecorder.restartOnSustainedSilence()
+                            if (switchedTo != null) {
+                                recordingMode = switchedTo
+                                quietPollsInARow = 0
+                                recordingLooksSilent = false
+                                micIsSystemMuted = false
+                            }
+                        }
+                    }
+                    kotlinx.coroutines.delay(500)
+                }
+                isRecording = false
+                recordingMode = null
+                recordingLooksSilent = false
+                micIsSystemMuted = false
+            }
+
+            // Root-build-only live captions for this real SIM call (see
+            // RootCarrierCaptionSource's class doc). Three independent
+            // gates, matching how isRecording above is gated: the
+            // BuildConfig flag (compile-time - this code path is genuinely
+            // absent on the Normal build's isRecording-equivalent check
+            // below, not just hidden in the UI), the person's own setting,
+            // and callState actually being STATE_ACTIVE - captioning a call
+            // that's still ringing or has already disconnected has nothing
+            // to caption.
+            LaunchedEffect(callState, settings.liveCaptionsEnabled) {
+                if (!com.ashudialer.app.BuildConfig.CARRIER_CALL_CAPTIONS_ENABLED || !settings.liveCaptionsEnabled) {
+                    captionLines = emptyList()
+                    return@LaunchedEffect
+                }
+                if (callState != Call.STATE_ACTIVE) {
+                    return@LaunchedEffect
+                }
+                val captionLanguage = CaptionLanguage.entries.find { it.name == settings.captionLanguage } ?: CaptionLanguage.ENGLISH_INDIA
+                if (!app.captionModelManager.isDownloaded(captionLanguage)) {
+                    // Same deliberate no-auto-download-mid-call choice as
+                    // VideoCallActivity's identical check - see that
+                    // comment for the full reasoning.
+                    return@LaunchedEffect
+                }
+                if (com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && app.callRecorder.isRecording) {
+                    // Real, documented constraint (Android CDD's Concurrent
+                    // Capture section): only one capture can hold VOICE_CALL
+                    // at a time. Recording already has it for this call, so
+                    // captions simply don't start rather than fighting
+                    // recording for the same protected source - recording
+                    // was the thing the person's earlier settings choice
+                    // (or this call's in-progress recording) already
+                    // committed to, and silently interrupting an in-progress
+                    // recording to grab captions instead would be a worse
+                    // surprise than captions just not appearing this once.
+                    return@LaunchedEffect
+                }
+                var loadedModel: org.vosk.Model? = null
+                app.captionModelManager.ensureReady(captionLanguage) { state ->
+                    if (state is CaptionModelState.Ready) loadedModel = state.model
+                }
+                val model = loadedModel ?: return@LaunchedEffect
+                val engine = CallCaptionEngine(model)
+                val source = RootCarrierCaptionSource(app)
+                val started = engine.start(16_000) && source.start { pcm, length, sampleRateHz ->
+                    engine.acceptAudio(pcm, length, sampleRateHz)?.let { line ->
+                        captionLines = (captionLines + line).takeLast(6)
+                    }
+                }
+                if (!started) {
+                    engine.release()
+                    return@LaunchedEffect
+                }
+                try {
+                    // Suspends here for the lifetime of this LaunchedEffect -
+                    // cancellation (callState changing, liveCaptionsEnabled
+                    // turning off, or this whole Activity going away) is
+                    // what actually ends this coroutine and reaches the
+                    // finally block below, since RootCarrierCaptionSource's
+                    // own capture loop runs on its own background Thread,
+                    // not as a suspend function this could otherwise await.
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    engine.finish()?.let { line -> captionLines = (captionLines + line).takeLast(6) }
+                    source.stop()
+                    engine.release()
+                }
+            }
+
+            fun startRecording(callerLabel: String) {
+                // Never touch the microphone while the call is ringing, dialing,
+                // ended, or otherwise not actually connected.
+                if (callState != Call.STATE_ACTIVE) return
+                if (app.callRecorder.isRecording) {
+                    isRecording = true
+                    recordingMode = app.callRecorder.currentMode()
+                    recordingSeconds = app.callRecorder.elapsedSeconds()
+                    return
+                }
+                // CallRecorder.start() calls MediaRecorder.prepare()/start()
+                // and a short SystemClock.sleep() per candidate audio source
+                // (it can try up to 3 sources before giving up), which is
+                // genuinely blocking I/O - up to several hundred ms. Running
+                // it directly from this click handler used to block the main
+                // thread, so the record button (and the whole call screen)
+                // would freeze/lag right when tapped. Moving the blocking
+                // work to Dispatchers.IO and only touching Compose state
+                // afterwards (back on the main thread automatically once the
+                // launched block resumes) keeps the tap responsive.
+                //
+                // Recording must not silently change the user's audio route.
+                // CallRecorder first tries protected/communication call-audio
+                // sources and only then falls back to the normal microphone.
+                // Android does not provide a public API for an ordinary app to
+                // force two-way cellular capture, so we never fake that by
+                // switching speaker on automatically.
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val mode = app.callRecorder.start(callerLabel)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        recordingMode = mode.takeIf { it != RecordingMode.FAILED }
+                        isRecording = mode != RecordingMode.FAILED
+                        recordingSeconds = app.callRecorder.elapsedSeconds()
+                    }
+                }
+            }
+
+            fun stopRecording() {
+                // stop() also does blocking I/O (MediaRecorder.stop() plus
+                // copying the file into public storage) - same reasoning as
+                // startRecording() above.
+                isRecording = false
+                recordingMode = null
+                recordingSeconds = 0
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    app.callRecorder.stop()
+                }
+            }
+
+            AshuDialerTheme(themeId = themeId, fontSizeIndex = settings.fontSizeIndex) {
+                // Same theme-follows-status-bar-icon-color fix as
+                // MainActivity - previously InCallActivity had no status bar
+                // styling at all (Theme.AshuDialer.Call's XML didn't set
+                // statusBarColor/windowLightStatusBar either, see
+                // themes.xml), so the call screen's status bar area looked
+                // mismatched/inconsistent against whichever theme was active
+                // rather than blending into it like the rest of the app.
+                val palette = com.ashudialer.app.ui.theme.LocalDialerPalette.current
+                val view = LocalView.current
+                // IncomingCallScreen (rendered when call?.state ==
+                // STATE_RINGING) always uses its own dark aurora background
+                // regardless of which app theme is active - its whole
+                // design (see IncomingCallScreen.kt) doesn't follow
+                // palette.isDark the way the rest of the app does. Using
+                // palette.isDark here for that screen specifically would
+                // mean a Light/Gradient theme selection flips the status
+                // bar to dark icons on top of that always-dark background,
+                // making them unreadable. Every other call state
+                // (CallScreen, for an active/dialing call) still follows
+                // the theme as before.
+                val isRingingScreen = call?.state == android.telecom.Call.STATE_RINGING
+                LaunchedEffect(palette.isDark, isRingingScreen) {
+                    androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                        val useLightIcons = if (isRingingScreen) false else !palette.isDark
+                        isAppearanceLightStatusBars = useLightIcons
+                        isAppearanceLightNavigationBars = useLightIcons
+                    }
+                }
+
+                val current = call
+                if (current != null) {
+                    val number = current.details?.handle?.schemeSpecificPart ?: "Unknown"
+                    val rawCallerDisplayName = current.details?.callerDisplayName?.takeIf { it.isNotBlank() }
+
+
+                    var localContactMatch by remember(number) {
+                        mutableStateOf<com.ashudialer.app.data.Contact?>(null)
+                    }
+                    // Tri-state: null = lookup not finished yet, so callers that
+                    // need to wait for a stable name (e.g. logging the call
+                    // below) can tell "still resolving" apart from "resolved,
+                    // and genuinely isn't a saved contact" - Contact?'s own null
+                    // can't distinguish those two cases by itself.
+                    var contactLookupDone by remember(number) { mutableStateOf(false) }
+                    LaunchedEffect(number) {
+                        localContactMatch = if (number.isNotBlank() && number != "Unknown") {
+                            app.contactsRepository.lookupNameForNumber(number)
+                        } else {
+                            null
+                        }
+                        contactLookupDone = true
+                    }
+
+                    // A saved contact's name should always win once the lookup
+                    // resolves - the carrier-provided callerDisplayName (SIM/
+                    // network CNAP data) is only a placeholder shown while that
+                    // lookup is still in flight, or a fallback when the number
+                    // truly isn't saved. Previously this was the other way
+                    // around (carrier name always won if present at all), so
+                    // an incoming call from a saved contact still showed
+                    // whatever label the SIM/carrier reported instead of the
+                    // name actually saved for that number.
+                    val resolvedName = localContactMatch?.displayName ?: rawCallerDisplayName
+                    val displayName = resolvedName ?: number
+                    val secondary = PixelInCallService.secondaryCall
+                    val secondaryNumber = secondary?.details?.handle?.schemeSpecificPart.orEmpty()
+                    val secondaryName = secondary?.details?.callerDisplayName?.takeIf { it.isNotBlank() }
+                        ?: secondaryNumber.takeIf { it.isNotBlank() }
+                    val secondaryState = secondary?.state
+
+
+                    // Specifically whether this matched a locally saved contact -
+                    // not just "is there any name string at all", since a
+                    // carrier-supplied name isn't a saved contact and previously
+                    // caused isSavedContact (which drives photo/name display
+                    // elsewhere) to be true for numbers that were never actually
+                    // saved.
+                    val isSavedContact = localContactMatch != null
+
+                    // Recents previously relied entirely on Android's own system
+                    // call log getting a finished entry, then this app's own
+                    // periodic syncFromSystem() eventually pulling that in - so a
+                    // freshly placed outgoing call didn't appear in Recents until
+                    // some later sync, not immediately. This logs the outgoing
+                    // call directly into this app's own call log the moment it's
+                    // known to be a real outgoing call, the same way an accepted
+                    // incoming call already is on the RINGING branch below.
+                    // Keyed on `number` (not `call`) with a per-call guard so
+                    // this fires exactly once per distinct outgoing call even
+                    // though this composable recomposes many times as the call
+                    // progresses through DIALING -> ACTIVE etc.
+                    val isOutgoing = current.details?.callDirection == Call.Details.DIRECTION_OUTGOING
+                    LaunchedEffect(number, isOutgoing, contactLookupDone) {
+                        if (isOutgoing && contactLookupDone && number.isNotBlank() && number != "Unknown" && loggedOutgoingNumbers.add(number)) {
+                            logCallAsync(app, number, displayName, CallDirection.OUTGOING)
+                        }
+                    }
+
+                    // Auto-record previously only ever fired from
+                    // IncomingCallScreen's onAccept - an outgoing call (the
+                    // person dialing out) never had any auto-record trigger
+                    // at all, regardless of the setting. This starts
+                    // recording the moment an outgoing call actually
+                    // connects (STATE_ACTIVE - not STATE_DIALING, since
+                    // there's no call audio to capture yet while it's still
+                    // ringing on the other end). Keyed on callState so it
+                    // only evaluates on real state transitions, and guarded
+                    // on !isRecording so it can't try to start a second
+                    // recording on top of one already running (e.g. if the
+                    // person manually started one from the record button
+                    // before this effect re-runs).
+                    LaunchedEffect(callState, isOutgoing) {
+                        if (callState == Call.STATE_ACTIVE &&
+                            settings.autoRecordAll && settings.callRecordingEnabled && !isRecording
+                        ) {
+                            startRecording(displayName)
+                        }
+                    }
+
+                    when (callState) {
+                        Call.STATE_RINGING -> {
+                            val spamAssessment = remember(number) { PendingSpamFlags.consume(number) }
+                            IncomingCallScreen(
+                                callerName = displayName,
+                                callerNumber = number,
+                                callerPhotoUri = localContactMatch?.photoUri,
+                                isSavedContact = isSavedContact,
+                                spamAssessment = spamAssessment,
+                                onAccept = {
+                                    current.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                                    logCallAsync(app, number, displayName, CallDirection.INCOMING)
+                                },
+                                onDecline = {
+                                    current.reject(false, null)
+                                },
+                                onQuickMessage = {
+
+
+                                    current.reject(true, "Can't talk right now, will call you back.")
+                                }
+                            )
+                        }
+                        else -> {
+                            CallScreen(
+                                callerName = displayName,
+                                callerNumber = number,
+                                isSavedContact = isSavedContact,
+                                callerPhotoUri = localContactMatch?.photoUri,
+                                isConnected = callState == Call.STATE_ACTIVE,
+                                isOnHold = callState == Call.STATE_HOLDING,
+                                canMerge = canMergeCalls,
+                                canSwap = canSwapCalls,
+                                secondaryCallerName = secondaryName,
+                                secondaryCallerNumber = secondaryNumber,
+                                secondaryCallState = secondaryState,
+                                recordingAvailable = com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && settings.callRecordingEnabled && callState == Call.STATE_ACTIVE,
+                                isRecording = isRecording,
+                                captionsAvailable = com.ashudialer.app.BuildConfig.CARRIER_CALL_CAPTIONS_ENABLED && settings.liveCaptionsEnabled,
+                                captionLines = captionLines,
+                                typeToTalkAvailable = settings.typeToTalkEnabled,
+                                typedMessages = typedMessages,
+                                onSendTypedMessage = { sendTypedMessage(it) },
+                                recordingMode = recordingMode,
+                                recordingSeconds = recordingSeconds,
+                                recordingLooksSilent = recordingLooksSilent,
+                                micIsSystemMuted = micIsSystemMuted,
+                                availableAudioRoutes = availableRoutes,
+                                currentAudioRoute = currentRoute,
+                                onDtmfDigit = { digit -> sendDtmf(digit) },
+                                onOpenNote = { showNoteDialog = true },
+                                onOpenVideoCall = if (app.authRepository.isSignedIn()) {
+                                    {
+                                        val intent = VideoCallActivity.callerIntent(this@InCallActivity, number, displayName)
+                                        startActivity(intent)
+                                    }
+                                } else null,
+                                isMuted = isMuted,
+                                onToggleMute = {
+                                    runCatching { CallAudioQuickActions.toggleMute(this@InCallActivity) }
+                                    isMuted = runCatching { CallAudioQuickActions.isMuted(this@InCallActivity) }
+                                        .getOrDefault(isMuted)
+                                    runCatching { CallNotificationHelper.refreshOngoing(this@InCallActivity) }
+                                },
+                                onToggleRecording = {
+                                    if (com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED) {
+                                        if (isRecording) stopRecording() else startRecording(displayName)
+                                    }
+                                },
+                                onSelectAudioRoute = { route ->
+
+
+                                    val service = PixelInCallService.instance
+                                    if (service != null) {
+                                        val telecomRoute = when (route) {
+                                            com.ashudialer.app.telecom.AudioRoute.SPEAKER -> android.telecom.CallAudioState.ROUTE_SPEAKER
+                                            com.ashudialer.app.telecom.AudioRoute.EARPIECE -> android.telecom.CallAudioState.ROUTE_EARPIECE
+                                            com.ashudialer.app.telecom.AudioRoute.BLUETOOTH -> android.telecom.CallAudioState.ROUTE_BLUETOOTH
+                                            com.ashudialer.app.telecom.AudioRoute.WIRED_HEADSET -> android.telecom.CallAudioState.ROUTE_WIRED_HEADSET
+                                        }
+                                        // Do NOT set currentRoute here - it now comes from
+                                        // PixelInCallService.currentAudioRouteFlow, which
+                                        // updates itself once Telecom's onCallAudioStateChanged
+                                        // fires with the real, confirmed route. Setting it here
+                                        // too would reintroduce the exact stale-read bug this
+                                        // was fixed for.
+                                        service.setAudioRoute(telecomRoute)
+                                    } else {
+                                        // No InCallService instance (rare - only if the
+                                        // activity somehow launched outside a real Telecom
+                                        // call). This fallback controller has no Telecom
+                                        // callback to report back through, so it's the one
+                                        // case where we still trust its own read of the route.
+                                        audioRouteController.selectRoute(route)
+                                    }
+                                },
+                                onMerge = { PixelInCallService.instance?.mergeCalls() },
+                                onSwap = { PixelInCallService.instance?.swapCalls() },
+                                onToggleHold = { PixelInCallService.instance?.toggleHold() },
+                                onAddCall = { showAddCallDialog = true },
+                                isEndingCall = isEndingCall,
+                                onEndCall = {
+                                    // Register the tap immediately, then ask Telecom to
+                                    // disconnect. Do not stop MediaRecorder before the
+                                    // disconnect request: releasing the capture path first
+                                    // can add avoidable work to the same OEM call-end window.
+                                    isEndingCall = true
+                                    current.disconnect()
+
+                                    // Telecom reports disconnect asynchronously. Check the
+                                    // actual Call object at a short cadence so the UI can
+                                    // react to STATE_DISCONNECTED without waiting for a
+                                    // Compose/service state propagation round-trip.
+                                    lifecycleScope.launch {
+                                        repeat(80) { // <= 4 seconds, 50ms cadence
+                                            val stateNow = runCatching { current.state }.getOrNull()
+                                            if (stateNow == Call.STATE_DISCONNECTED) {
+                                                callState = Call.STATE_DISCONNECTED
+                                                return@launch
+                                            }
+                                            kotlinx.coroutines.delay(50)
+                                        }
+                                    }
+                                }
+                            )
+
+                            if (showNoteDialog) {
+                                com.ashudialer.app.ui.components.InCallNoteDialog(
+                                    callerLabel = displayName,
+                                    onDismiss = { showNoteDialog = false },
+                                    onSave = { text ->
+                                        // applicationScope, not lifecycleScope: if the person
+                                        // saves a note then immediately ends the call (a very
+                                        // natural sequence), finish() cancels lifecycleScope
+                                        // and could cut the write off mid-flight before Room
+                                        // actually persists it.
+                                        app.applicationScope.launch {
+                                            app.callNoteRepository.addNote(
+                                                phoneNumber = number,
+                                                callerLabel = displayName,
+                                                text = text
+                                            )
+                                        }
+                                        showNoteDialog = false
+                                    }
+                                )
+                            }
+
+                            if (showAddCallDialog) {
+                                com.ashudialer.app.ui.components.AddCallDialog(
+                                    contacts = addCallContacts,
+                                    onDismiss = { showAddCallDialog = false },
+                                    onCall = { secondNumber ->
+                                        showAddCallDialog = false
+                                        // Match stock two-call behaviour: ask Telecom to put the
+                                        // current ACTIVE call on hold before creating the new
+                                        // outgoing call. Telecom may do this itself, but making
+                                        // the request explicit gives the UI a deterministic
+                                        // ACTIVE -> HOLDING -> DIALING sequence on OEMs that
+                                        // otherwise leave both calls visually ambiguous.
+                                        PixelInCallService.currentCall?.let { existing ->
+                                            if (existing.state == Call.STATE_ACTIVE) {
+                                                runCatching { existing.hold() }
+                                            }
+                                        }
+                                        DialerPermissions.placeCall(this@InCallActivity, secondNumber)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /**
+     * Close the call Activity without a platform fade. A fade can expose the
+     * Activity window background during the hand-off to the main dialer,
+     * producing a visible blue/blank flash on some OEM builds.
+     */
+    private fun applyCallEnterTransition() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                overrideActivityTransition(
+                    OVERRIDE_TRANSITION_OPEN,
+                    R.anim.call_enter,
+                    0
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(R.anim.call_enter, 0)
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * Close the call Activity with a very short fade/scale rather than a
+     * platform default transition. The old zero-duration close looked like
+     * the screen simply vanished; the new 150ms motion is small enough not
+     * to hold the user in the call screen, and windowDisablePreview prevents
+     * a blue starting/preview surface from appearing underneath it.
+     */
+    private fun overridePendingTransitionCompat() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                overrideActivityTransition(
+                    OVERRIDE_TRANSITION_CLOSE,
+                    0,
+                    R.anim.call_exit
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(0, R.anim.call_exit)
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun setupLockScreenAndWakeFlags(disableProximitySensor: Boolean) {
+        // These flags are deliberately applied to the real call activity, not
+        // only to the notification. This makes the UI eligible to appear over
+        // the keyguard when Telecom launches/reuses the activity while the
+        // phone is locked.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
+            if (disableProximitySensor) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            )
+        }
+    }
+
+    private fun logCallAsync(
+        app: AshuDialerApp,
+        number: String,
+        name: String,
+        direction: CallDirection
+    ) {
+        // Same reasoning as the note save above - this must survive the
+        // Activity finishing right after the call ends.
+        app.applicationScope.launch {
+            app.callLogRepository.logCall(number = number, name = name, direction = direction)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CallNotificationHelper.isCallScreenVisible = true
+
+
+        CallNotificationHelper.refreshOngoing(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.i("InCallActivity", "onPause at ${SystemClock.elapsedRealtime()}")
+        CallNotificationHelper.isCallScreenVisible = false
+
+
+        CallNotificationHelper.refreshOngoing(this)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.i("InCallActivity", "onDestroy at ${SystemClock.elapsedRealtime()}")
+    }
+
+    companion object {
+        /**
+         * Boolean intent extra: when true, this Activity answers the ringing
+         * call itself as soon as it has a live Call object, instead of just
+         * opening the ringing screen and waiting for a manual tap on Answer.
+         * Set by CallActionReceiver when the person answers from the
+         * notification action - see the ACTION_ANSWER branch there for the
+         * full reasoning on why answering happens here rather than directly
+         * inside that BroadcastReceiver.
+         */
+        const val EXTRA_AUTO_ANSWER = "com.ashudialer.app.EXTRA_AUTO_ANSWER"
+    }
+}
