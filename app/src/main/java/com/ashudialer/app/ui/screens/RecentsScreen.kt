@@ -593,6 +593,96 @@ private fun SheetActionRow(
 }
 
 
+/**
+ * The dialog the reminder trigger above opens. Recreated after being lost
+ * from the packaged build (it was called but never shipped in the same
+ * file) - a short list of plain-language quick options rather than a raw
+ * date/time picker, so setting a callback reminder stays a single tap
+ * instead of navigating a calendar/clock UI for what's almost always a
+ * same-day reminder. Tapping any option both schedules and closes the
+ * dialog in one step, matching the tap-once feel of SheetActionRow above.
+ */
+@Composable
+private fun CallbackReminderPickerDialog(
+    callerName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Long) -> Unit
+) {
+    val palette = LocalDialerPalette.current
+    val options = remember {
+        listOf<Pair<String, () -> Long>>(
+            "In 30 minutes" to { addMinutesFromNow(30) },
+            "In 1 hour" to { addHoursFromNow(1) },
+            "In 3 hours" to { addHoursFromNow(3) },
+            "This evening" to { thisEveningMillis() },
+            "Tomorrow morning" to { tomorrowMorningMillis() }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remind me to call $callerName back") },
+        text = {
+            Column {
+                options.forEach { (label, computeMillis) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onConfirm(computeMillis()) }
+                            .padding(vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.Alarm,
+                            contentDescription = null,
+                            tint = palette.textSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(label, fontSize = 15.sp, color = palette.textPrimary)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+private fun addMinutesFromNow(minutes: Int): Long =
+    Calendar.getInstance().apply { add(Calendar.MINUTE, minutes) }.timeInMillis
+
+private fun addHoursFromNow(hours: Int): Long =
+    Calendar.getInstance().apply { add(Calendar.HOUR_OF_DAY, hours) }.timeInMillis
+
+/**
+ * 6 PM today, or 6 PM tomorrow if it's already past 6 PM - "this evening"
+ * should never resolve to a moment that's already passed.
+ */
+private fun thisEveningMillis(): Long {
+    val cal = Calendar.getInstance()
+    cal.set(Calendar.HOUR_OF_DAY, 18)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    if (cal.timeInMillis <= System.currentTimeMillis()) {
+        cal.add(Calendar.DAY_OF_YEAR, 1)
+    }
+    return cal.timeInMillis
+}
+
+private fun tomorrowMorningMillis(): Long {
+    val cal = Calendar.getInstance()
+    cal.add(Calendar.DAY_OF_YEAR, 1)
+    cal.set(Calendar.HOUR_OF_DAY, 9)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
+
 @androidx.compose.foundation.ExperimentalFoundationApi
 @Composable
 private fun RecentRow(

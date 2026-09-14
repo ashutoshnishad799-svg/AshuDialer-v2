@@ -228,7 +228,16 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
 
-    implementation("io.getstream:stream-webrtc-android:1.1.1")
+    // Bumped from 1.1.1 (Nov 2023): that version predates org.webrtc.AudioTrackSink /
+    // AudioTrack.addSink(AudioTrackSink), which live call captions (see
+    // WebRtcCaptionSource) depend on to read the remote party's decoded audio.
+    // 1.3.10 is the newest published release and confirmed (via current docs)
+    // to include it. Every other org.webrtc API this project already uses -
+    // PeerConnection.Observer's full method set, DefaultVideoEncoderFactory/
+    // DefaultVideoDecoderFactory constructors, IceCandidate, SdpObserver,
+    // VideoTrack.addSink/removeSink - was individually checked against the
+    // same docs and matches the existing code with no changes needed.
+    implementation("io.getstream:stream-webrtc-android:1.3.10")
 
     // Live call captions (speech-to-text of the other party's voice - see
     // CallCaptionEngine). android.speech.SpeechRecognizer was deliberately
