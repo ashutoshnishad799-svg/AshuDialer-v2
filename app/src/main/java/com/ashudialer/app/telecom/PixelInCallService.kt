@@ -142,7 +142,7 @@ class PixelInCallService : InCallService() {
 
     override fun onCreate() {
         super.onCreate()
-        callAudioState = null
+        PixelInCallService.callAudioState = null
         instance = this
         val app = applicationContext as? AshuDialerApp
         if (app != null) {
@@ -164,7 +164,7 @@ class PixelInCallService : InCallService() {
         _currentAudioRoute.value = AudioRoute.EARPIECE
         _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
         _isMuted.value = false
-        callAudioState = null
+        PixelInCallService.callAudioState = null
         resolvedContactNames.clear()
         loggedAsMissed.clear()
         loggedAsAnswered.clear()
@@ -185,7 +185,7 @@ class PixelInCallService : InCallService() {
     override fun onCallAudioStateChanged(audioState: android.telecom.CallAudioState) {
         super.onCallAudioStateChanged(audioState)
         try {
-            callAudioState = audioState
+            PixelInCallService.callAudioState = audioState
             _currentAudioRoute.value = when (audioState.route) {
                 android.telecom.CallAudioState.ROUTE_SPEAKER -> AudioRoute.SPEAKER
                 android.telecom.CallAudioState.ROUTE_BLUETOOTH -> AudioRoute.BLUETOOTH
@@ -287,7 +287,7 @@ class PixelInCallService : InCallService() {
         _allCalls.remove(call)
         notifyListeners()
         if (_allCalls.none { it.state != Call.STATE_DISCONNECTED }) {
-            callAudioState = null
+            PixelInCallService.callAudioState = null
             _currentAudioRoute.value = AudioRoute.EARPIECE
             _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
             _isMuted.value = false
