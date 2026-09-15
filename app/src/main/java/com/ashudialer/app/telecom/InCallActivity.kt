@@ -322,6 +322,26 @@ class InCallActivity : ComponentActivity() {
             }
 
 
+            LaunchedEffect(call) {
+                val watched = call ?: return@LaunchedEffect
+                if (watched.state != Call.STATE_DIALING && watched.state != Call.STATE_CONNECTING) return@LaunchedEffect
+
+                val startedAt = SystemClock.elapsedRealtime()
+                while (true) {
+                    kotlinx.coroutines.delay(150)
+                    val live = PixelInCallService.currentCall
+                    val state = live?.state
+                    if (live == null || live !== watched || state == Call.STATE_DISCONNECTED) return@LaunchedEffect
+                    if (state == Call.STATE_ACTIVE || state == Call.STATE_RINGING) return@LaunchedEffect
+                    if (SystemClock.elapsedRealtime() - startedAt >= DIALING_TIMEOUT_MS) {
+                        Log.w("InCallActivity", "Dialing/connect timeout; disconnecting call and closing UI")
+                        runCatching { watched.disconnect() }
+                        closeCallUiImmediately()
+                        return@LaunchedEffect
+                    }
+                }
+            }
+
             LaunchedEffect(callState) {
                 if (callState == Call.STATE_DISCONNECTED) {
                     // THE ACTUAL FIX for the black screen after a call ends:
@@ -378,15 +398,8 @@ class InCallActivity : ComponentActivity() {
                     // a moment before it closes, rather than closing a
                     // still-showWhenLocked window and leaving WindowManager
                     // to sort out the keyguard state after the fact.
-                    val keyguardManager = getSystemService(KeyguardManager::class.java)
-                    val isKeyguardLockedNow = keyguardManager?.isKeyguardLocked ?: false
-                    Log.i("InCallActivity", "DISCONNECTED at ${SystemClock.elapsedRealtime()} - isKeyguardLocked=$isKeyguardLockedNow - calling finish() now")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                        try { setShowWhenLocked(false) } catch (_: Throwable) {}
-                    }
-                    finish()
-                    overridePendingTransitionCompat()
-                    Log.i("InCallActivity", "finish() returned at ${SystemClock.elapsedRealtime()}")
+                    Log.i("InCallActivity", "DISCONNECTED at ${SystemClock.elapsedRealtime()} - closing UI immediately")
+                    closeCallUiImmediately()
                     if (app.callRecorder.isRecording) {
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                             app.callRecorder.stop()
@@ -402,13 +415,14 @@ class InCallActivity : ComponentActivity() {
                 // listener populated currentCall; that race made the custom
                 // screen disappear and left the stock dialer UI on some OEMs.
                 if (call == null) {
-                    // Telecom can be slower than 2s on dual-SIM/MIUI devices
-                    // while the Call object moves from the notification path to
-                    // InCallService. Do not close the activity during that normal
-                    // hand-off window; the old 2s timeout produced blank/black
-                    // call screens and made an outgoing call look as if it had
-                    // failed even though Telecom was still creating it.
-                    repeat(60) {
+                    // The call Activity is only a presentation surface; it is
+                    // never allowed to become a permanent waiting screen. If
+                    // Telecom has not handed us a Call inside this short OEM
+                    // hand-off window, close the Activity and leave the live
+                    // Telecom/notification path alone. This guarantees a fast
+                    // return instead of the white "Connecting call" screen
+                    // sitting there indefinitely.
+                    repeat((CALL_OBJECT_HANDOFF_TIMEOUT_MS / 100).toInt()) {
                         kotlinx.coroutines.delay(100)
                         val pending = PixelInCallService.currentCall
                         if (pending != null) {
@@ -417,26 +431,8 @@ class InCallActivity : ComponentActivity() {
                             return@LaunchedEffect
                         }
                     }
-                    // Same finish()-before-stop() ordering fix as the
-                    // STATE_DISCONNECTED branch above, and for the identical
-                    // reason: don't let a blocking MediaRecorder.stop() call
-                    // hold this screen open and frozen after the decision to
-                    // close it has already been made.
-                    val keyguardManager2 = getSystemService(KeyguardManager::class.java)
-                    val isKeyguardLockedNow2 = keyguardManager2?.isKeyguardLocked ?: false
-                    Log.i("InCallActivity", "call==null timeout at ${SystemClock.elapsedRealtime()} - isKeyguardLocked=$isKeyguardLockedNow2 - calling finish() now")
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                        try { setShowWhenLocked(false) } catch (_: Throwable) {}
-                    }
-                    finish()
-                    overridePendingTransitionCompat()
-                    Log.i("InCallActivity", "finish() returned at ${SystemClock.elapsedRealtime()}")
-                    if (isRecording) {
-                        isRecording = false
-                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            app.callRecorder.stop()
-                        }
-                    }
+                    Log.i("InCallActivity", "call object handoff timeout at ${SystemClock.elapsedRealtime()} - closing UI immediately")
+                    closeCallUiImmediately()
                 }
             }
 
@@ -754,12 +750,12 @@ class InCallActivity : ComponentActivity() {
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)
                                 },
                                 onDecline = {
-                                    current.reject(false, null)
+                                    runCatching { current.reject(false, null) }
+                                    closeCallUiImmediately()
                                 },
                                 onQuickMessage = {
-
-
-                                    current.reject(true, "Can't talk right now, will call you back.")
+                                    runCatching { current.reject(true, "Can't talk right now, will call you back.") }
+                                    closeCallUiImmediately()
                                 }
                             )
                         }
@@ -857,22 +853,12 @@ class InCallActivity : ComponentActivity() {
                                     // disconnect request: releasing the capture path first
                                     // can add avoidable work to the same OEM call-end window.
                                     isEndingCall = true
-                                    current.disconnect()
-
-                                    // Telecom reports disconnect asynchronously. Check the
-                                    // actual Call object at a short cadence so the UI can
-                                    // react to STATE_DISCONNECTED without waiting for a
-                                    // Compose/service state propagation round-trip.
-                                    lifecycleScope.launch {
-                                        repeat(80) { // <= 4 seconds, 50ms cadence
-                                            val stateNow = runCatching { current.state }.getOrNull()
-                                            if (stateNow == Call.STATE_DISCONNECTED) {
-                                                callState = Call.STATE_DISCONNECTED
-                                                return@launch
-                                            }
-                                            kotlinx.coroutines.delay(50)
-                                        }
-                                    }
+                                    runCatching { current.disconnect() }
+                                    // Do not make the person wait for Telecom/carrier
+                                    // propagation. The UI is a presentation layer; the
+                                    // disconnect request continues in Telecom after we
+                                    // immediately return to the dialer.
+                                    closeCallUiImmediately()
                                 }
                             )
 
@@ -948,26 +934,20 @@ class InCallActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Close the call Activity with a very short fade/scale rather than a
-     * platform default transition. The old zero-duration close looked like
-     * the screen simply vanished; the new 150ms motion is small enough not
-     * to hold the user in the call screen, and windowDisablePreview prevents
-     * a blue starting/preview surface from appearing underneath it.
-     */
-    private fun overridePendingTransitionCompat() {
+    /** Close the call Activity with no visual transition or blank-frame gap. */
+    private fun closeCallUiImmediately() {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                overrideActivityTransition(
-                    OVERRIDE_TRANSITION_CLOSE,
-                    0,
-                    R.anim.call_exit
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                overridePendingTransition(0, R.anim.call_exit)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                runCatching { setShowWhenLocked(false) }
             }
+            finish()
+            // Deliberately zero-duration: the requested behaviour is that the
+            // call surface disappears directly to the dialer with no black,
+            // white, fade or scale frame in between.
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
         } catch (_: Throwable) {
+            runCatching { finish() }
         }
     }
 
@@ -1033,6 +1013,12 @@ class InCallActivity : ComponentActivity() {
     }
 
     companion object {
+        // Never leave the user sitting on an otherwise empty "Connecting call"
+        // surface. Telecom normally supplies a Call almost immediately; this
+        // is only a defensive hand-off ceiling for OEM/dual-SIM races.
+        private const val CALL_OBJECT_HANDOFF_TIMEOUT_MS = 1800L
+        private const val DIALING_TIMEOUT_MS = 7500L
+
         /**
          * Boolean intent extra: when true, this Activity answers the ringing
          * call itself as soon as it has a live Call object, instead of just

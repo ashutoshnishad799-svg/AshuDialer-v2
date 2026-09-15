@@ -27,6 +27,11 @@ class PixelInCallService : InCallService() {
         var instance: PixelInCallService? = null
             private set
 
+        /** Latest Telecom-confirmed audio state for notification/actions. */
+        @Volatile
+        var callAudioState: android.telecom.CallAudioState? = null
+            private set
+
         /**
          * The real, Telecom-confirmed current audio route - not an optimistic
          * guess read immediately after requesting a route change. Telecom's
@@ -82,7 +87,6 @@ class PixelInCallService : InCallService() {
                 ?: _allCalls.firstOrNull { it.state == Call.STATE_CONNECTING }
                 ?: _allCalls.firstOrNull { it.state == Call.STATE_ACTIVE }
                 ?: _allCalls.firstOrNull { it.state == Call.STATE_HOLDING }
-                ?: _allCalls.firstOrNull()
 
         val secondaryCall: Call?
             get() = _allCalls.firstOrNull { it != currentCall && it.state != Call.STATE_DISCONNECTED }
@@ -139,6 +143,7 @@ class PixelInCallService : InCallService() {
 
     override fun onCreate() {
         super.onCreate()
+        callAudioState = null
         instance = this
         val app = applicationContext as? AshuDialerApp
         if (app != null) {
@@ -160,6 +165,7 @@ class PixelInCallService : InCallService() {
         _currentAudioRoute.value = AudioRoute.EARPIECE
         _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
         _isMuted.value = false
+        callAudioState = null
         resolvedContactNames.clear()
         loggedAsMissed.clear()
         loggedAsAnswered.clear()
@@ -180,6 +186,7 @@ class PixelInCallService : InCallService() {
     override fun onCallAudioStateChanged(audioState: android.telecom.CallAudioState) {
         super.onCallAudioStateChanged(audioState)
         try {
+            callAudioState = audioState
             _currentAudioRoute.value = when (audioState.route) {
                 android.telecom.CallAudioState.ROUTE_SPEAKER -> AudioRoute.SPEAKER
                 android.telecom.CallAudioState.ROUTE_BLUETOOTH -> AudioRoute.BLUETOOTH
@@ -194,6 +201,11 @@ class PixelInCallService : InCallService() {
             if (mask and android.telecom.CallAudioState.ROUTE_WIRED_HEADSET != 0) supported.add(AudioRoute.WIRED_HEADSET)
             if (supported.isNotEmpty()) _availableAudioRoutes.value = supported
             _isMuted.value = audioState.isMuted
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                if (currentCall != null) {
+                    runCatching { CallNotificationHelper.refreshOngoing(applicationContext) }
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to process audio state change", e)
         }
@@ -240,6 +252,7 @@ class PixelInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         Log.d(TAG, "Call added: ${call.details.handle}, state=${call.state}, totalCalls=${_allCalls.size + 1}")
+        _allCalls.removeAll { existing -> existing === call || existing.state == Call.STATE_DISCONNECTED }
         _allCalls.add(call)
         call.registerCallback(callCallback)
         notifyListeners()
@@ -274,7 +287,11 @@ class PixelInCallService : InCallService() {
         call.unregisterCallback(callCallback)
         _allCalls.remove(call)
         notifyListeners()
-        if (_allCalls.isEmpty()) {
+        if (_allCalls.none { it.state != Call.STATE_DISCONNECTED }) {
+            callAudioState = null
+            _currentAudioRoute.value = AudioRoute.EARPIECE
+            _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
+            _isMuted.value = false
             CallNotificationHelper.clear(applicationContext)
         }
         callKey(call)?.let {
