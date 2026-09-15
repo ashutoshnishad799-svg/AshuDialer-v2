@@ -30,7 +30,6 @@ class PixelInCallService : InCallService() {
         /** Latest Telecom-confirmed audio state for notification/actions. */
         @Volatile
         var callAudioState: android.telecom.CallAudioState? = null
-            internal set
 
         /**
          * The real, Telecom-confirmed current audio route - not an optimistic
