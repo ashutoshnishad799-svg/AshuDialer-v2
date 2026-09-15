@@ -92,11 +92,21 @@ object DialerPermissions {
 
 
     fun placeCall(context: Context, number: String) {
+        require(number.isNotBlank()) { "number must not be blank" }
         if (isDefaultDialer(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            telecomManager.placeCall(Uri.fromParts("tel", number, null), Bundle())
+            val accounts = try { telecomManager.callCapablePhoneAccounts } catch (_: SecurityException) { emptyList() }
+            val extras = Bundle().apply {
+                // A single capable SIM should be selected explicitly. This avoids
+                // an OEM Telecom stack briefly creating and then tearing down an
+                // outgoing Call because it had no resolved phone account yet.
+                if (accounts.size == 1) {
+                    putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accounts.first())
+                }
+            }
+            telecomManager.placeCall(Uri.fromParts("tel", number.trim(), null), extras)
         } else {
-            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(number.trim())}")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(intent)
@@ -114,7 +124,15 @@ object DialerPermissions {
             val extras = Bundle().apply {
                 putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, simHandle)
             }
-            telecomManager.placeCall(Uri.fromParts("tel", number, null), extras)
+            try {
+                telecomManager.placeCall(Uri.fromParts("tel", number.trim(), null), extras)
+            } catch (e: RuntimeException) {
+                // If an OEM rejects a stale/disabled SIM handle, retry through
+                // Telecom without forcing that account instead of making the
+                // tap look like an instant failed call.
+                android.util.Log.w("DialerPermissions", "SIM-specific placeCall failed; retrying without account", e)
+                placeCall(context, number)
+            }
         } else {
             placeCall(context, number)
         }

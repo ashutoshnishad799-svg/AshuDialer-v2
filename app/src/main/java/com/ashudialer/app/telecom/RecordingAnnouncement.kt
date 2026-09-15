@@ -12,7 +12,7 @@ class RecordingAnnouncement(context: Context) : TextToSpeech.OnInitListener {
     private var ready = false
     private var pendingAnnouncement = false
 
-    // Same fix as TypeToTalkEngine's identical field, for the identical
+    // Use the same robust TTS initialization pattern as the rest of the call audio path.
     // reason: setAudioAttributes() alone isn't reliably honored per-
     // utterance by every OEM TTS engine, so this is also passed directly
     // in speakNow()'s own params Bundle rather than relied on solely as

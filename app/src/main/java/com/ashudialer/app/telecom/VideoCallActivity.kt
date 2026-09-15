@@ -37,7 +37,6 @@ class VideoCallActivity : ComponentActivity() {
         const val EXTRA_CALL_ID = "call_id"
         const val ROLE_CALLER = "caller"
         const val ROLE_CALLEE = "callee"
-        private const val MAX_VISIBLE_CAPTION_LINES = 6
 
         fun callerIntent(context: Context, calleeNumber: String, calleeName: String): Intent =
             Intent(context, VideoCallActivity::class.java).apply {
@@ -130,39 +129,6 @@ class VideoCallActivity : ComponentActivity() {
             //   doesn't render rather than offering a call that can't
             //   actually be placed.
             val fallbackVoiceNumber = if (role == ROLE_CALLER) calleeNumber.takeIf { it.isNotBlank() } else remoteCallerNumber?.takeIf { it.isNotBlank() }
-
-            // Live captions: only ever attempted on this WebRTC/data call
-            // path, and only once the model for the chosen language is
-            // already downloaded (see CaptionModelManager) - captions never
-            // trigger a download themselves mid-call, since starting a
-            // 30-60 second download the instant a call connects would make
-            // the person wait on their captions instead of just talking.
-            // If the model isn't ready, captionLines simply stays empty and
-            // the call proceeds completely normally with no captions UI,
-            // rather than blocking or nagging about the missing download.
-            val captionLanguage = remember(settings.captionLanguage) {
-                CaptionLanguage.entries.find { it.name == settings.captionLanguage } ?: CaptionLanguage.ENGLISH_INDIA
-            }
-            var captionLines by remember { mutableStateOf<List<CaptionLine>>(emptyList()) }
-
-            // Type-to-talk needs no model download and no flavor gating
-            // (see TypeToTalkEngine's class doc) - it can always exist once
-            // this screen is up, independent of whether the person has it
-            // turned on; sendTypedMessage below is what actually gates on
-            // settings.typeToTalkEnabled before doing anything.
-            val typeToTalkEngine = remember { TypeToTalkEngine(this@VideoCallActivity) }
-            var typedMessages by remember { mutableStateOf<List<TypedMessage>>(emptyList()) }
-            DisposableEffect(Unit) {
-                typeToTalkEngine.setOnMessageStateChanged { updated ->
-                    typedMessages = typedMessages.map { if (it.id == updated.id) it.copy(isSpeaking = updated.isSpeaking) else it }
-                }
-                onDispose { typeToTalkEngine.release() }
-            }
-            fun sendTypedMessage(text: String) {
-                if (!settings.typeToTalkEnabled || text.isBlank()) return
-                val id = typeToTalkEngine.speak(text)
-                typedMessages = (typedMessages + TypedMessage(id, text.trim(), isSpeaking = false)).takeLast(MAX_VISIBLE_CAPTION_LINES)
-            }
 
             val hasCameraPermission = cameraPermissionResult.value
                 ?: (ContextCompat.checkSelfPermission(this@VideoCallActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -266,45 +232,6 @@ class VideoCallActivity : ComponentActivity() {
                 }
             }
 
-            // Captions only ever start here, on the WebRTC/data-call path -
-            // see the comment on captionLines above for why the Root/normal-
-            // carrier-call caption path (a separate, root-only feature) is
-            // never reachable through this Activity at all: VideoCallActivity
-            // is the WebRTC call screen specifically, so there is no carrier
-            // audio to tap here in the first place.
-            LaunchedEffect(remoteAudioTrack, settings.liveCaptionsEnabled, captionLanguage) {
-                val track = remoteAudioTrack
-                if (track == null || !settings.liveCaptionsEnabled) {
-                    captionLines = emptyList()
-                    return@LaunchedEffect
-                }
-                val modelManager = app.captionModelManager
-                if (!modelManager.isDownloaded(captionLanguage)) {
-                    // Deliberately does not trigger a download here - see
-                    // the comment on captionLines above. The Settings
-                    // screen is the only place a caption-model download
-                    // starts (CaptionSettingsScreen), so a person who
-                    // enabled captions but hasn't finished that download
-                    // yet just gets a normal, caption-free call rather
-                    // than an unexpected mid-call download.
-                    return@LaunchedEffect
-                }
-                var loadedModel: org.vosk.Model? = null
-                modelManager.ensureReady(captionLanguage) { state ->
-                    if (state is CaptionModelState.Ready) loadedModel = state.model
-                }
-                val model = loadedModel ?: return@LaunchedEffect
-                val engine = CallCaptionEngine(model)
-                WebRtcCaptionSource.captions(track, engine).collect { line ->
-                    captionLines = (captionLines + line)
-                        // Keeps only the most recent lines on screen - an
-                        // hour-long call would otherwise grow this list for
-                        // the entire duration even though the caption
-                        // overlay (see VideoCallScreen) only ever shows the
-                        // last few lines at once.
-                        .takeLast(MAX_VISIBLE_CAPTION_LINES)
-                }
-            }
 
 
             LaunchedEffect(callId, localUid) {
@@ -370,11 +297,6 @@ class VideoCallActivity : ComponentActivity() {
                     isMicEnabled = isMicEnabled,
                     isCameraEnabled = isCameraEnabled,
                     sameCarrierHint = notSignedInMessage ?: sameCarrierHint,
-                    captionLines = captionLines,
-                    captionsAvailable = settings.liveCaptionsEnabled,
-                    typeToTalkAvailable = settings.typeToTalkEnabled,
-                    typedMessages = typedMessages,
-                    onSendTypedMessage = { sendTypedMessage(it) },
                     onToggleMic = {
                         isMicEnabled = !isMicEnabled
                         callManager?.setMicEnabled(isMicEnabled)

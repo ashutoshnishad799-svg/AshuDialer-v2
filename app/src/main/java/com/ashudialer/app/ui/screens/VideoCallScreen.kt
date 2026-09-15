@@ -58,19 +58,6 @@ fun VideoCallScreen(
     onSwitchCamera: () -> Unit,
     onEndCall: () -> Unit,
     isInPip: Boolean = false,
-    // Live captions of the other person's voice (see CallCaptionEngine) -
-    // captionsAvailable gates whether the CC toggle button even appears at
-    // all, separately from whether captionLines currently has anything in
-    // it, since a person with captions off in Settings shouldn't see a
-    // button for a feature that isn't running for this call.
-    captionLines: List<com.ashudialer.app.telecom.CaptionLine> = emptyList(),
-    captionsAvailable: Boolean = false,
-    // Type-to-talk: typed text spoken into the call via TTS (see
-    // TypeToTalkEngine). typeToTalkAvailable gates the keyboard-icon
-    // button the same way captionsAvailable gates the CC button above.
-    typeToTalkAvailable: Boolean = false,
-    typedMessages: List<com.ashudialer.app.telecom.TypedMessage> = emptyList(),
-    onSendTypedMessage: (String) -> Unit = {},
     // Non-null only when there's an actual number this screen can hand
     // off to for a plain voice call instead - see VideoCallActivity's
     // fallbackVoiceNumber for exactly when that is. Kept nullable rather
@@ -220,17 +207,6 @@ fun VideoCallScreen(
                 }
             }
         }
-
-
-        CaptionsAndTypeToTalkOverlay(
-            captionsAvailable = captionsAvailable,
-            captionLines = captionLines,
-            typeToTalkAvailable = typeToTalkAvailable,
-            typedMessages = typedMessages,
-            onSendTypedMessage = onSendTypedMessage,
-            bottomInsetForCaptions = 104.dp,
-            bottomInsetForComposer = 92.dp
-        )
 
         Row(
             modifier = Modifier

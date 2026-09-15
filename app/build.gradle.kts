@@ -86,25 +86,10 @@ android {
         create("normal") {
             dimension = "distribution"
             buildConfigField("boolean", "CALL_RECORDING_ENABLED", "false")
-            // Live captions (speech-to-text of the other person's voice) on
-            // a real carrier call need the same protected far-end audio
-            // access as call recording - see CallRecorder's extensive
-            // comments on setRecordSilenced. The Normal build already can't
-            // reliably record that audio, so it can't reliably caption it
-            // either; captions on this flavor are scoped to WebRTC data
-            // calls only (see VideoCallActivity), where the remote
-            // MediaStream's audio track is directly available to the app
-            // with no carrier/OEM audio-policy restriction at all.
-            buildConfigField("boolean", "CARRIER_CALL_CAPTIONS_ENABLED", "false")
         }
         create("root") {
             dimension = "distribution"
             buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
-            // Same protected-audio access this flavor already has for
-            // recording (VOICE_CALL / RECORD_BACKGROUND_AUDIO or the
-            // Magisk-privileged path) is what makes carrier-call captions
-            // reliable here too, not a separate permission or capability.
-            buildConfigField("boolean", "CARRIER_CALL_CAPTIONS_ENABLED", "true")
         }
     }
 
@@ -226,34 +211,7 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
-
-
-    // Bumped from 1.1.1 (Nov 2023): that version predates org.webrtc.AudioTrackSink /
-    // AudioTrack.addSink(AudioTrackSink), which live call captions (see
-    // WebRtcCaptionSource) depend on to read the remote party's decoded audio.
-    // 1.3.10 is the newest published release and confirmed (via current docs)
-    // to include it. Every other org.webrtc API this project already uses -
-    // PeerConnection.Observer's full method set, DefaultVideoEncoderFactory/
-    // DefaultVideoDecoderFactory constructors, IceCandidate, SdpObserver,
-    // VideoTrack.addSink/removeSink - was individually checked against the
-    // same docs and matches the existing code with no changes needed.
     implementation("io.getstream:stream-webrtc-android:1.3.10")
-
-    // Live call captions (speech-to-text of the other party's voice - see
-    // CallCaptionEngine). android.speech.SpeechRecognizer was deliberately
-    // NOT used here: it always listens to the live device microphone and
-    // has no API to feed it a specific audio source instead, which rules
-    // it out for both of this feature's real audio sources - the WebRTC
-    // remote MediaStream's audio track (VideoCallActivity) and, on the
-    // Root build only, the same protected VOICE_CALL-style source
-    // CallRecorder already uses. Vosk's Recognizer.acceptWaveForm(ByteArray)
-    // takes raw 16-bit PCM directly, independent of where that PCM came
-    // from, which is exactly the audio-source-agnostic shape this feature
-    // needs. Fully on-device/offline (no per-call cloud STT cost or a
-    // third-party service seeing call audio) and Apache-2.0 licensed,
-    // compatible with this project's own GPLv3 license.
-    implementation("com.alphacephei:vosk-android:0.3.75")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
 
 
     testImplementation("junit:junit:4.13.2")

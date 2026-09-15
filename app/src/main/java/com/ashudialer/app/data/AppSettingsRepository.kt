@@ -49,25 +49,6 @@ data class AppSettings(
 
     val showSearchBar: Boolean = true,
 
-    // Live captions (speech-to-text of the other person's voice, shown on
-    // the call screen) and type-to-talk (typed text spoken into the call
-    // via TTS) - see CallCaptionEngine / TypeToTalkEngine. Off by default
-    // for the same reason callRecordingEnabled is above: on a normal SIM
-    // call, captioning the other person's voice needs the same protected
-    // far-end audio access call recording does, which the Normal build
-    // cannot reliably get. The two toggles are independent because a
-    // person who can hear fine but wants to type instead of speak (or vice
-    // versa) is a completely different situation from someone who wants
-    // both, and forcing them together would make one half of the feature
-    // unusable for either group.
-    val liveCaptionsEnabled: Boolean = false,
-    val typeToTalkEnabled: Boolean = false,
-    // Stores CaptionLanguage.name (e.g. "HINDI") rather than the enum
-    // itself, since DataStore only persists primitives - resolved back to
-    // the enum wherever it's read, defaulting to ENGLISH_INDIA to match
-    // this app's primary userbase rather than plain ENGLISH_US.
-    val captionLanguage: String = "ENGLISH_INDIA",
-
     val fontSizeIndex: Int = 1
 )
 
@@ -92,9 +73,6 @@ class AppSettingsRepository(private val context: Context) {
     private val keyRelativeDate = booleanPreferencesKey("use_relative_date")
     private val keyShowSearchBar = booleanPreferencesKey("show_search_bar")
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
-    private val keyLiveCaptionsEnabled = booleanPreferencesKey("live_captions_enabled")
-    private val keyTypeToTalkEnabled = booleanPreferencesKey("type_to_talk_enabled")
-    private val keyCaptionLanguage = stringPreferencesKey("caption_language")
 
     val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
@@ -117,9 +95,6 @@ class AppSettingsRepository(private val context: Context) {
             useRelativeDate = prefs[keyRelativeDate] ?: true,
             showSearchBar = prefs[keyShowSearchBar] ?: true,
             fontSizeIndex = prefs[keyFontSizeIndex] ?: 1,
-            liveCaptionsEnabled = prefs[keyLiveCaptionsEnabled] ?: false,
-            typeToTalkEnabled = prefs[keyTypeToTalkEnabled] ?: false,
-            captionLanguage = prefs[keyCaptionLanguage] ?: "ENGLISH_INDIA"
         )
     }
 
@@ -197,17 +172,5 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setFontSizeIndex(index: Int) {
         context.settingsDataStore.edit { it[keyFontSizeIndex] = index }
-    }
-
-    suspend fun setLiveCaptionsEnabled(enabled: Boolean) {
-        context.settingsDataStore.edit { it[keyLiveCaptionsEnabled] = enabled }
-    }
-
-    suspend fun setTypeToTalkEnabled(enabled: Boolean) {
-        context.settingsDataStore.edit { it[keyTypeToTalkEnabled] = enabled }
-    }
-
-    suspend fun setCaptionLanguage(languageName: String) {
-        context.settingsDataStore.edit { it[keyCaptionLanguage] = languageName }
     }
 }

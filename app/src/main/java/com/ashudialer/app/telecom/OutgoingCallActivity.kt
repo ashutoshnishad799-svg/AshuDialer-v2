@@ -95,7 +95,13 @@ class OutgoingCallActivity : Activity() {
             val uri = Uri.fromParts("tel", number, null)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                telecomManager.placeCall(uri, Bundle())
+                val accounts = runCatching { telecomManager.callCapablePhoneAccounts }.getOrDefault(emptyList())
+                val extras = Bundle().apply {
+                    if (accounts.size == 1) {
+                        putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accounts.first())
+                    }
+                }
+                telecomManager.placeCall(uri, extras)
             }
         } catch (e: SecurityException) {
             // Can happen if this app isn't (or is no longer) the default

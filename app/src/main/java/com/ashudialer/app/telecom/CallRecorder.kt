@@ -468,12 +468,6 @@ class CallRecorder(private val context: Context) {
          * since this is an internal recovery cache the person never sees
          * or edits, not a user-facing setting.
          *
-         * internal (not private): RootCarrierCaptionSource reads this same
-         * per-device data when picking an AudioSource for live captions on
-         * a normal carrier call, rather than maintaining its own separate
-         * copy of "which sources are silent on this phone" that could
-         * silently drift out of sync with what CallRecorder has already
-         * learned from real recording attempts on this exact device.
          */
         internal fun loadKnownSilentSources(context: Context): Set<Int> {
             return try {

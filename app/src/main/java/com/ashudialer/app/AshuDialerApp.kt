@@ -19,7 +19,6 @@ import com.ashudialer.app.data.VideoCallSignalingRepository
 import com.ashudialer.app.data.db.AshuDialerDatabase
 import com.ashudialer.app.telecom.CallNotificationHelper
 import com.ashudialer.app.telecom.CallRecorder
-import com.ashudialer.app.telecom.CaptionModelManager
 import com.ashudialer.app.telecom.VideoCallListenerService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -76,14 +75,6 @@ class AshuDialerApp : Application() {
         private set
     lateinit var callbackReminderRepository: com.ashudialer.app.data.CallbackReminderRepository
         private set
-    // Held at the Application level (not per-Activity) specifically so its
-    // in-memory Model cache (see CaptionModelManager.cachedModelFor)
-    // survives across calls within the same app session - loading a ~50MB
-    // Vosk model from disk is the expensive part of getting captions ready,
-    // and a person making several calls in a row should only pay that cost
-    // once, not on every single call.
-    lateinit var captionModelManager: CaptionModelManager
-        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -111,7 +102,6 @@ class AshuDialerApp : Application() {
         privateSpaceRepository = com.ashudialer.app.data.PrivateSpaceRepository(database.privateSpaceDao(), database.lockedNumberDao(), this)
         localAuthRepository = com.ashudialer.app.data.LocalAuthRepository(this)
         callbackReminderRepository = com.ashudialer.app.data.CallbackReminderRepository(this, database.callbackReminderDao())
-        captionModelManager = CaptionModelManager(this)
         createNotificationChannels()
 
         CallNotificationHelper.createChannels(this)

@@ -99,15 +99,6 @@ fun CallScreen(
     // Defaulted so every other existing call site of this composable keeps
     // compiling unchanged.
     isEndingCall: Boolean = false,
-    // Live captions (see CallCaptionEngine / RootCarrierCaptionSource) and
-    // type-to-talk (see TypeToTalkEngine) for this real SIM call - see
-    // InCallActivity's wiring of both. Defaulted so any other existing
-    // call site of this composable keeps compiling unchanged.
-    captionsAvailable: Boolean = false,
-    captionLines: List<com.ashudialer.app.telecom.CaptionLine> = emptyList(),
-    typeToTalkAvailable: Boolean = false,
-    typedMessages: List<com.ashudialer.app.telecom.TypedMessage> = emptyList(),
-    onSendTypedMessage: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -474,21 +465,6 @@ fun CallScreen(
                 }
             }
         }
-
-        CaptionsAndTypeToTalkOverlay(
-            captionsAvailable = captionsAvailable,
-            captionLines = captionLines,
-            typeToTalkAvailable = typeToTalkAvailable,
-            typedMessages = typedMessages,
-            onSendTypedMessage = onSendTypedMessage,
-            // Taller than VideoCallScreen's equivalent insets: this
-            // screen's control grid (caller info block plus a full button
-            // grid, not a compact floating row) sits noticeably taller on
-            // screen, so the caption strip and composer need more headroom
-            // to clear it rather than overlapping the bottom buttons.
-            bottomInsetForCaptions = 180.dp,
-            bottomInsetForComposer = 160.dp
-        )
     }
 }
 

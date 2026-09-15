@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.SimCard
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.filled.Voicemail
 import androidx.compose.material3.HorizontalDivider
@@ -52,7 +51,6 @@ private val baseMenuItems = listOf(
     MenuEntry("Notes", Icons.Filled.NoteAlt),
     MenuEntry("Recordings", Icons.Filled.FiberManualRecord),
     MenuEntry("Call Insights", Icons.Filled.BarChart),
-    MenuEntry("Captions & Type-to-talk", Icons.Filled.Subtitles),
     MenuEntry("Vibration Patterns", Icons.Filled.Vibration),
     MenuEntry("Appearance", Icons.Filled.Palette),
     MenuEntry("Quiet Hours", Icons.Filled.Bedtime),

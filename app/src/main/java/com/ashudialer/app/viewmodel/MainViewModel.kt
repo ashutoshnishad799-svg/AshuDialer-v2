@@ -575,18 +575,6 @@ class MainViewModel(
         viewModelScope.launch { appSettingsRepository.setCallRecordingEnabled(enabled) }
     }
 
-    fun setLiveCaptionsEnabled(enabled: Boolean) {
-        viewModelScope.launch { appSettingsRepository.setLiveCaptionsEnabled(enabled) }
-    }
-
-    fun setTypeToTalkEnabled(enabled: Boolean) {
-        viewModelScope.launch { appSettingsRepository.setTypeToTalkEnabled(enabled) }
-    }
-
-    fun setCaptionLanguage(languageName: String) {
-        viewModelScope.launch { appSettingsRepository.setCaptionLanguage(languageName) }
-    }
-
     fun setAutoRecordAll(enabled: Boolean) {
         viewModelScope.launch { appSettingsRepository.setAutoRecordAll(enabled) }
     }

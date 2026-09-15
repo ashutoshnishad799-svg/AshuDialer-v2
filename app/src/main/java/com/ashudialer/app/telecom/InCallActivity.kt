@@ -12,6 +12,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.lifecycleScope
@@ -24,6 +37,25 @@ import com.ashudialer.app.ui.screens.IncomingCallScreen
 import com.ashudialer.app.ui.theme.AshuDialerTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+
+@Composable
+private fun CallLoadingScreen(title: String, subtitle: String) {
+    val palette = com.ashudialer.app.ui.theme.LocalDialerPalette.current
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            CircularProgressIndicator(color = palette.accent)
+            Spacer(Modifier.height(20.dp))
+            Text(title, style = MaterialTheme.typography.titleLarge, color = palette.textPrimary)
+            Spacer(Modifier.height(6.dp))
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = palette.textSecondary)
+        }
+    }
+}
 
 class InCallActivity : ComponentActivity() {
 
@@ -174,32 +206,6 @@ class InCallActivity : ComponentActivity() {
             // still only act on the real STATE_DISCONNECTED once it lands.
             var isEndingCall by remember { mutableStateOf(false) }
             var isRecording by remember { mutableStateOf(com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && app.callRecorder.isRecording) }
-            // Live captions on THIS screen (a real carrier/SIM call) only
-            // ever run on the root build - see CallCaptionEngine's class
-            // doc and CaptionSettingsScreen's explanation text for why the
-            // Normal build has no equivalent here at all. VideoCallActivity
-            // is the separate WebRTC call screen and has its own,
-            // always-available caption wiring.
-            var captionLines by remember { mutableStateOf<List<CaptionLine>>(emptyList()) }
-
-            // Type-to-talk works identically here as on the WebRTC call
-            // screen (VideoCallActivity) - it only ever produces audio into
-            // the call via TTS, never reads the other party's audio, so it
-            // needs no BuildConfig/root gating at all (see TypeToTalkEngine's
-            // class doc).
-            val typeToTalkEngine = remember { TypeToTalkEngine(this@InCallActivity) }
-            var typedMessages by remember { mutableStateOf<List<TypedMessage>>(emptyList()) }
-            DisposableEffect(Unit) {
-                typeToTalkEngine.setOnMessageStateChanged { updated ->
-                    typedMessages = typedMessages.map { if (it.id == updated.id) it.copy(isSpeaking = updated.isSpeaking) else it }
-                }
-                onDispose { typeToTalkEngine.release() }
-            }
-            fun sendTypedMessage(text: String) {
-                if (!settings.typeToTalkEnabled || text.isBlank()) return
-                val id = typeToTalkEngine.speak(text)
-                typedMessages = (typedMessages + TypedMessage(id, text.trim(), isSpeaking = false)).takeLast(6)
-            }
             var recordingMode by remember { mutableStateOf(app.callRecorder.currentMode()) }
             var recordingSeconds by remember { mutableStateOf(app.callRecorder.elapsedSeconds()) }
             // True once recording has run silent (no getMaxAmplitude signal
@@ -396,7 +402,13 @@ class InCallActivity : ComponentActivity() {
                 // listener populated currentCall; that race made the custom
                 // screen disappear and left the stock dialer UI on some OEMs.
                 if (call == null) {
-                    repeat(20) {
+                    // Telecom can be slower than 2s on dual-SIM/MIUI devices
+                    // while the Call object moves from the notification path to
+                    // InCallService. Do not close the activity during that normal
+                    // hand-off window; the old 2s timeout produced blank/black
+                    // call screens and made an outgoing call look as if it had
+                    // failed even though Telecom was still creating it.
+                    repeat(60) {
                         kotlinx.coroutines.delay(100)
                         val pending = PixelInCallService.currentCall
                         if (pending != null) {
@@ -554,75 +566,6 @@ class InCallActivity : ComponentActivity() {
                 micIsSystemMuted = false
             }
 
-            // Root-build-only live captions for this real SIM call (see
-            // RootCarrierCaptionSource's class doc). Three independent
-            // gates, matching how isRecording above is gated: the
-            // BuildConfig flag (compile-time - this code path is genuinely
-            // absent on the Normal build's isRecording-equivalent check
-            // below, not just hidden in the UI), the person's own setting,
-            // and callState actually being STATE_ACTIVE - captioning a call
-            // that's still ringing or has already disconnected has nothing
-            // to caption.
-            LaunchedEffect(callState, settings.liveCaptionsEnabled) {
-                if (!com.ashudialer.app.BuildConfig.CARRIER_CALL_CAPTIONS_ENABLED || !settings.liveCaptionsEnabled) {
-                    captionLines = emptyList()
-                    return@LaunchedEffect
-                }
-                if (callState != Call.STATE_ACTIVE) {
-                    return@LaunchedEffect
-                }
-                val captionLanguage = CaptionLanguage.entries.find { it.name == settings.captionLanguage } ?: CaptionLanguage.ENGLISH_INDIA
-                if (!app.captionModelManager.isDownloaded(captionLanguage)) {
-                    // Same deliberate no-auto-download-mid-call choice as
-                    // VideoCallActivity's identical check - see that
-                    // comment for the full reasoning.
-                    return@LaunchedEffect
-                }
-                if (com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && app.callRecorder.isRecording) {
-                    // Real, documented constraint (Android CDD's Concurrent
-                    // Capture section): only one capture can hold VOICE_CALL
-                    // at a time. Recording already has it for this call, so
-                    // captions simply don't start rather than fighting
-                    // recording for the same protected source - recording
-                    // was the thing the person's earlier settings choice
-                    // (or this call's in-progress recording) already
-                    // committed to, and silently interrupting an in-progress
-                    // recording to grab captions instead would be a worse
-                    // surprise than captions just not appearing this once.
-                    return@LaunchedEffect
-                }
-                var loadedModel: org.vosk.Model? = null
-                app.captionModelManager.ensureReady(captionLanguage) { state ->
-                    if (state is CaptionModelState.Ready) loadedModel = state.model
-                }
-                val model = loadedModel ?: return@LaunchedEffect
-                val engine = CallCaptionEngine(model)
-                val source = RootCarrierCaptionSource(app)
-                val started = engine.start(16_000) && source.start { pcm, length, sampleRateHz ->
-                    engine.acceptAudio(pcm, length, sampleRateHz)?.let { line ->
-                        captionLines = (captionLines + line).takeLast(6)
-                    }
-                }
-                if (!started) {
-                    engine.release()
-                    return@LaunchedEffect
-                }
-                try {
-                    // Suspends here for the lifetime of this LaunchedEffect -
-                    // cancellation (callState changing, liveCaptionsEnabled
-                    // turning off, or this whole Activity going away) is
-                    // what actually ends this coroutine and reaches the
-                    // finally block below, since RootCarrierCaptionSource's
-                    // own capture loop runs on its own background Thread,
-                    // not as a suspend function this could otherwise await.
-                    kotlinx.coroutines.awaitCancellation()
-                } finally {
-                    engine.finish()?.let { line -> captionLines = (captionLines + line).takeLast(6) }
-                    source.stop()
-                    engine.release()
-                }
-            }
-
             fun startRecording(callerLabel: String) {
                 // Never touch the microphone while the call is ringing, dialing,
                 // ended, or otherwise not actually connected.
@@ -703,7 +646,12 @@ class InCallActivity : ComponentActivity() {
                 }
 
                 val current = call
-                if (current != null) {
+                if (current == null) {
+                    CallLoadingScreen(
+                        title = if (pendingAutoAnswer) "Connecting incoming call…" else "Connecting call…",
+                        subtitle = "Waiting for the phone service"
+                    )
+                } else {
                     val number = current.details?.handle?.schemeSpecificPart ?: "Unknown"
                     val rawCallerDisplayName = current.details?.callerDisplayName?.takeIf { it.isNotBlank() }
 
@@ -830,11 +778,6 @@ class InCallActivity : ComponentActivity() {
                                 secondaryCallState = secondaryState,
                                 recordingAvailable = com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && settings.callRecordingEnabled && callState == Call.STATE_ACTIVE,
                                 isRecording = isRecording,
-                                captionsAvailable = com.ashudialer.app.BuildConfig.CARRIER_CALL_CAPTIONS_ENABLED && settings.liveCaptionsEnabled,
-                                captionLines = captionLines,
-                                typeToTalkAvailable = settings.typeToTalkEnabled,
-                                typedMessages = typedMessages,
-                                onSendTypedMessage = { sendTypedMessage(it) },
                                 recordingMode = recordingMode,
                                 recordingSeconds = recordingSeconds,
                                 recordingLooksSilent = recordingLooksSilent,

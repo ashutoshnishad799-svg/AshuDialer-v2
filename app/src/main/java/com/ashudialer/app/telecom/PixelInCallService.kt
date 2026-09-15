@@ -149,6 +149,21 @@ class PixelInCallService : InCallService() {
     }
 
     override fun onDestroy() {
+        // Do not let Call instances from a previous InCallService lifetime
+        // survive a Telecom/OEM service restart. A stale Call object can make
+        // currentCall point at a disconnected call and the next UI launch can
+        // immediately close or show the wrong caller.
+        _allCalls.toList().forEach { call ->
+            runCatching { call.unregisterCallback(callCallback) }
+        }
+        _allCalls.clear()
+        _currentAudioRoute.value = AudioRoute.EARPIECE
+        _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
+        _isMuted.value = false
+        resolvedContactNames.clear()
+        loggedAsMissed.clear()
+        loggedAsAnswered.clear()
+        notifyListeners()
         super.onDestroy()
         if (instance === this) instance = null
     }
@@ -471,15 +486,18 @@ class PixelInCallService : InCallService() {
 
 
     fun answer() {
-        currentCall?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+        runCatching { currentCall?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY) }
+            .onFailure { Log.w(TAG, "Answer request failed", it) }
     }
 
     fun reject() {
-        currentCall?.reject(false, null)
+        runCatching { currentCall?.reject(false, null) }
+            .onFailure { Log.w(TAG, "Reject request failed", it) }
     }
 
     fun hangup() {
-        currentCall?.disconnect()
+        runCatching { currentCall?.disconnect() }
+            .onFailure { Log.w(TAG, "Hangup request failed", it) }
     }
 
     fun toggleHold() {

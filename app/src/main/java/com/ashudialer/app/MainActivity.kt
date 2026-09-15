@@ -67,7 +67,7 @@ import com.ashudialer.app.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, CAPTIONS_TYPE_TO_TALK }
+private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK }
 
 // THE FIX for the Modules/Root-setup screen "freezing" after tapping
 // "Open Magisk" and coming back: overlay used to be plain `remember`,
@@ -601,15 +601,23 @@ class MainActivity : ComponentActivity() {
                 // (single-SIM code path, no DB hop needed) would then work.
                 app.applicationScope.launch {
                     val sims = DialerPermissions.availableSims(context)
-                    val handle = if (sims.size > 1) {
-                        val preferredId = try {
-                            app.database.simRoutingDao().getPreferredSimId(number)
-                        } catch (_: Exception) {
-                            null // fall through with no preferred SIM rather than lose the call entirely
+                    val handle = when {
+                        sims.size == 1 -> sims.first().handle
+                        sims.size > 1 -> {
+                            val preferredId = try {
+                                app.database.simRoutingDao().getPreferredSimId(number)
+                            } catch (_: Exception) {
+                                null
+                            }
+                            preferredId?.let { id -> sims.firstOrNull { it.handle.id == id }?.handle }
                         }
-                        preferredId?.let { id -> sims.firstOrNull { it.handle.id == id }?.handle }
-                    } else null
-                    DialerPermissions.placeCall(context, number, handle)
+                        else -> null
+                    }
+                    runCatching {
+                        DialerPermissions.placeCall(context, number, handle)
+                    }.onFailure { error ->
+                        android.util.Log.e("MainActivity", "Outgoing call request failed for $number", error)
+                    }
                 }
             }
 
@@ -1096,7 +1104,6 @@ class MainActivity : ComponentActivity() {
                                                     insightsSelectedDay = null
                                                     overlay = OverlayScreen.CALL_INSIGHTS
                                                 }
-                                                "Captions & Type-to-talk" -> overlay = OverlayScreen.CAPTIONS_TYPE_TO_TALK
                                                 "Check for updates" -> {
                                                     updateCheck = null
                                                     updateCheckBusy = true
@@ -1407,17 +1414,6 @@ class MainActivity : ComponentActivity() {
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         }
-                                        OverlayScreen.CAPTIONS_TYPE_TO_TALK -> com.ashudialer.app.ui.screens.CaptionSettingsScreen(
-                                            liveCaptionsEnabled = settings.liveCaptionsEnabled,
-                                            typeToTalkEnabled = settings.typeToTalkEnabled,
-                                            captionLanguageName = settings.captionLanguage,
-                                            captionModelManager = app.captionModelManager,
-                                            onBack = { overlay = OverlayScreen.NONE },
-                                            onSetLiveCaptionsEnabled = { viewModel.setLiveCaptionsEnabled(it) },
-                                            onSetTypeToTalkEnabled = { viewModel.setTypeToTalkEnabled(it) },
-                                            onSetCaptionLanguage = { viewModel.setCaptionLanguage(it.name) },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
                                         OverlayScreen.BLOCKED_NUMBERS -> BlockedNumbersScreen(
                                             blockedNumbers = blockedNumbers,
                                             onBack = { overlay = OverlayScreen.NONE },

@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -186,23 +187,18 @@ fun IncomingCallScreen(
 ) {
     val palette = LocalDialerPalette.current
     val callerHue = ((callerName.firstOrNull()?.code ?: 65) * 37) % 360
-    // Blend the caller-derived hue with the active theme's own accent hue so
-    // every caller still looks visually distinct (as before) while the
-    // overall palette clearly belongs to whichever theme is active - a 65/35
-    // bias toward the theme's hue is enough to make Ocean Blue read blue and
-    // Violet read violet without making every caller on that theme look
-    // identical.
     val themeHue = accentHueDegrees(palette.accent)
-    val hue = (((themeHue * 0.65f) + (callerHue * 0.35f)).toInt()).let { if (it < 0) it + 360 else it % 360 }
+    val hue = (((themeHue * 0.72f) + (callerHue * 0.28f)).toInt()).let { it.mod(360) }
     val backdropBase = incomingCallBackdropColor(palette)
-
-    val identityEntrance by rememberEntranceProgress(delayMs = 0)
-    val badgeEntrance by rememberEntranceProgress(delayMs = 140)
-    val actionsEntrance by rememberEntranceProgress(delayMs = 220)
-
     val foreground = if (palette.isDark) Color.White else palette.textPrimary
-    val secondaryText = if (palette.isDark) Color.White.copy(alpha = 0.72f) else palette.textSecondary
-    val glassFill = if (palette.isDark) Color.White.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.48f)
+    val secondaryText = if (palette.isDark) Color.White.copy(alpha = 0.70f) else palette.textSecondary
+    val panel = if (palette.isDark) Color.White.copy(alpha = 0.105f) else Color.White.copy(alpha = 0.54f)
+    val border = Color.White.copy(alpha = if (palette.isDark) 0.16f else 0.62f)
+
+    val identityEntrance by rememberEntranceProgress(0)
+    val avatarEntrance by rememberEntranceProgress(90)
+    val actionsEntrance by rememberEntranceProgress(170)
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -213,66 +209,168 @@ fun IncomingCallScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // Same cutout-aware fix as CallScreen/ContactDetailScreen/
-                // AddContactScreen - this screen's caller avatar
-                // (GlassAvatarRings below) is the top-anchored element most
-                // at risk of sitting under a punch-hole cutout, so
-                // statusBarsPadding() alone isn't assumed sufficient here
-                // either.
                 .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                .navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.weight(0.36f))
-
-            Column(
-                modifier = Modifier.fillMaxWidth().graphicsLayerAlphaRise(identityEntrance),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Incoming call", fontSize = 15.sp, color = secondaryText, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(10.dp))
-                Text(callerName, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = foreground, textAlign = TextAlign.Center, maxLines = 1)
-                Spacer(Modifier.height(5.dp))
-                if (callerNumber.isNotBlank() && callerNumber != callerName) {
-                    Text(callerNumber, fontSize = 15.sp, color = secondaryText)
-                }
-                if (!isSavedContact) {
-                    Spacer(Modifier.height(4.dp))
-                    Text("Not saved contact", fontSize = 12.sp, color = secondaryText.copy(alpha = 0.9f))
-                }
-                if (spamAssessment?.isLikelySpam == true) {
-                    Spacer(Modifier.height(10.dp))
-                    SpamBadge(modifier = Modifier.graphicsLayerAlphaRise(badgeEntrance))
-                }
-            }
-
-            Spacer(Modifier.weight(0.28f))
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                GlassAvatarRings(photoUri = callerPhotoUri, callerName = callerName)
-            }
-            Spacer(Modifier.weight(0.48f))
-
-            // A single frosted action area keeps the incoming screen visually
-            // consistent with the rest of Ashu Dialer. Both actions use the
-            // same gesture: swipe the button upward to trigger it.
             Row(
                 modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .clip(RoundedCornerShape(34.dp))
-                    .background(glassFill)
-                    .padding(horizontal = 22.dp, vertical = 16.dp)
-                    .graphicsLayerAlphaRise(actionsEntrance),
-                horizontalArrangement = Arrangement.spacedBy(42.dp),
+                    .fillMaxWidth()
+                    .graphicsLayerAlphaRise(identityEntrance),
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SwipeUpCallCircle(Icons.Filled.CallEnd, "Decline", Color(0xFFE0442E), onDecline)
-                SwipeUpCallCircle(Icons.Filled.Phone, "Answer", palette.callGreen, onAccept)
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = if (palette.isDark) 0.10f else 0.48f))
+                        .border(1.dp, border, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "INCOMING CALL",
+                        fontSize = 11.sp,
+                        letterSpacing = 1.3.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = secondaryText
+                    )
+                }
             }
 
+            Spacer(Modifier.height(26.dp))
+            Column(
+                modifier = Modifier.graphicsLayerAlphaRise(identityEntrance),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = callerName.ifBlank { "Unknown caller" },
+                    fontSize = 35.sp,
+                    lineHeight = 40.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = foreground,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+                if (callerNumber.isNotBlank() && callerNumber != callerName) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(callerNumber, fontSize = 15.sp, color = secondaryText)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = if (isSavedContact) "Saved contact" else "New caller",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = secondaryText.copy(alpha = 0.88f)
+                )
+                if (spamAssessment?.isLikelySpam == true) {
+                    Spacer(Modifier.height(12.dp))
+                    SpamBadge(modifier = Modifier.graphicsLayerAlphaRise(identityEntrance))
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Box(Modifier.graphicsLayerAlphaRise(avatarEntrance)) {
+                GlassAvatarRings(photoUri = callerPhotoUri, callerName = callerName)
+            }
+
+            Spacer(Modifier.weight(0.80f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(34.dp))
+                    .background(panel)
+                    .border(1.dp, border, RoundedCornerShape(34.dp))
+                    .padding(horizontal = 18.dp, vertical = 18.dp)
+                    .graphicsLayerAlphaRise(actionsEntrance),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PremiumCallAction(
+                    icon = Icons.Filled.CallEnd,
+                    label = "Decline",
+                    accent = palette.danger,
+                    onClick = onDecline
+                )
+                PremiumCallAction(
+                    icon = Icons.Filled.Phone,
+                    label = "Answer",
+                    accent = palette.callGreen,
+                    onClick = onAccept
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Tap a button or swipe it up",
+                fontSize = 12.sp,
+                color = secondaryText,
+                modifier = Modifier.graphicsLayerAlphaRise(actionsEntrance)
+            )
             Spacer(Modifier.height(10.dp))
-            Text("Swipe up to answer or decline", fontSize = 12.sp, color = secondaryText, modifier = Modifier.align(Alignment.CenterHorizontally))
+            QuickActionsPill(
+                onQuickMessage = onQuickMessage,
+                modifier = Modifier.graphicsLayerAlphaRise(actionsEntrance),
+                lightMode = !palette.isDark
+            )
             Spacer(Modifier.height(8.dp))
-            QuickActionsPill(onQuickMessage = onQuickMessage, modifier = Modifier.align(Alignment.CenterHorizontally).graphicsLayerAlphaRise(actionsEntrance), lightMode = !palette.isDark)
-            Spacer(Modifier.height(22.dp))
         }
+    }
+}
+
+@Composable
+private fun PremiumCallAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    var dragPx by remember { mutableStateOf(0f) }
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 54.dp.toPx() }
+    val offset by animateFloatAsState(
+        targetValue = dragPx,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+        label = "call-action-offset"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        if (dragPx >= threshold) onClick()
+                        dragPx = 0f
+                    },
+                    onDragCancel = { dragPx = 0f },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        dragPx = (dragPx - amount.y).coerceIn(0f, threshold * 1.25f)
+                    }
+                )
+            }
+            .clickable(onClick = onClick)
+            .graphicsLayer {
+                translationY = -offset
+                val p = (dragPx / threshold).coerceIn(0f, 1f)
+                scaleX = 1f + p * 0.06f
+                scaleY = 1f + p * 0.06f
+            }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(78.dp)
+                .clip(CircleShape)
+                .background(accent)
+                .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(31.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(label, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
     }
 }
 
