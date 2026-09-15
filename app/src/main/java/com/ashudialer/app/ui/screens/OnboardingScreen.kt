@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
@@ -555,7 +556,7 @@ private fun OnboardingThemeCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        androidx.compose.material.icons.Icons.Filled.Check,
+                        Icons.Filled.Check,
                         contentDescription = "Selected",
                         tint = accent,
                         modifier = Modifier.size(16.dp)
