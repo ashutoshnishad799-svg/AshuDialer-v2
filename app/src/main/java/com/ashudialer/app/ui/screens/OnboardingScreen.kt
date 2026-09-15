@@ -74,7 +74,6 @@ import com.ashudialer.app.ui.theme.LocalDialerPalette
  *    THIS app, in whatever theme is actually active, not a detour into a
  *    different visual language.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
@@ -343,6 +342,7 @@ private fun WelcomePage(palette: DialerPalette) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PersonalizePage(
     palette: DialerPalette,
