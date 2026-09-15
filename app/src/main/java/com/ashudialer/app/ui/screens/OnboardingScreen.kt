@@ -20,7 +20,9 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -342,110 +344,240 @@ private fun WelcomePage(palette: DialerPalette) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PersonalizePage(
     palette: DialerPalette,
     currentThemeId: String,
     onThemeSelected: (String) -> Unit
 ) {
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Make it yours", color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, letterSpacing = (-0.3).sp)
+    val themeCount = AllPalettes.size
+    val selectedPalette = AllPalettes.firstOrNull { it.id == currentThemeId }
+
+    Column(
+        Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "Make it yours",
+            color = palette.textPrimary,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.ExtraBold,
+            textAlign = TextAlign.Center,
+            letterSpacing = (-0.3).sp
+        )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Pick a theme now or change it later",
+            "Choose from the themes already built into Ashu Dialer",
             color = palette.textSecondary,
-            fontSize = 15.sp,
-            textAlign = TextAlign.Center
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 18.dp)
         )
-        Spacer(Modifier.height(32.dp))
-        // THE FIX for "onboarding says Pick a theme but nothing here is
-        // actually tappable": this used to render AllPalettes.take(5) as
-        // plain, non-clickable Boxes - display-only, no onClick at all -
-        // so the whole page was really just showing whatever theme
-        // happened to already be active, with no way to change it from
-        // here despite the heading and subtitle both telling the person
-        // to pick one. Every palette (not just the first 5 - Rainbow and
-        // the others further down the list were previously unreachable
-        // from onboarding entirely) is now shown in a wrapping grid, each
-        // swatch clickable, calling onThemeSelected immediately so the
-        // whole screen re-themes live (palette here is
-        // LocalDialerPalette.current, so tapping a swatch really does
-        // preview it in place, not just record a choice for later) -
-        // matching what "pick a theme now" was actually promising.
-        FlowRow(
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .glassCard(palette, corner = 22.dp, tintAlpha = 0.42f)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        selectedPalette?.let { Brush.linearGradient(listOf(it.swatchStart, it.swatchEnd)) }
+                            ?: Brush.linearGradient(listOf(palette.accent, palette.accent.copy(alpha = .45f)))
+                    )
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = selectedPalette?.displayName ?: "System",
+                    color = palette.textPrimary,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "$themeCount built-in themes + System • tap any card to preview instantly",
+                    color = palette.textSecondary,
+                    fontSize = 11.5.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
             modifier = Modifier
                 .fillMaxWidth()
-                .glassCard(palette, corner = 28.dp, tintAlpha = 0.45f)
-                .padding(vertical = 20.dp, horizontal = 18.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .weight(1f)
+                .clip(RoundedCornerShape(26.dp))
+                .background(palette.cardBackground.copy(alpha = 0.22f))
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = 8.dp)
         ) {
-            AllPalettes.forEach { swatch ->
-                val isActive = swatch.id == currentThemeId
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .width(58.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { onThemeSelected(swatch.id) }
-                        .padding(vertical = 4.dp)
+            item(key = "system") {
+                val active = currentThemeId == com.ashudialer.app.ui.theme.AUTO_THEME_ID
+                OnboardingThemeCard(
+                    name = "System",
+                    subtitle = "Follows phone",
+                    start = palette.textSecondary.copy(alpha = .35f),
+                    end = palette.textPrimary.copy(alpha = .72f),
+                    accent = palette.accent,
+                    selected = active,
+                    onClick = { onThemeSelected(com.ashudialer.app.ui.theme.AUTO_THEME_ID) }
+                )
+            }
+
+            items(AllPalettes, key = { it.id }) { swatch ->
+                OnboardingThemeCard(
+                    name = swatch.displayName,
+                    subtitle = when (swatch.id) {
+                        "gradient" -> "Soft gradient"
+                        "midnight" -> "AMOLED dark"
+                        "ocean" -> "Cool blue"
+                        "sunset" -> "Warm glow"
+                        "violet" -> "Deep violet"
+                        "rosegold" -> "Warm metallic"
+                        "darkmode" -> "Pure dark"
+                        "white" -> "Clean light"
+                        "rainbow" -> "Full spectrum"
+                        else -> "Ashu Dialer theme"
+                    },
+                    start = swatch.swatchStart,
+                    end = swatch.swatchEnd,
+                    accent = swatch.accent,
+                    selected = swatch.id == currentThemeId,
+                    onClick = { onThemeSelected(swatch.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnboardingThemeCard(
+    name: String,
+    subtitle: String,
+    start: Color,
+    end: Color,
+    accent: Color,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = when {
+            pressed -> 0.975f
+            selected -> 1.01f
+            else -> 1f
+        },
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+        label = "theme-card-scale"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (selected) accent.copy(alpha = .12f) else Color.Transparent)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) accent.copy(alpha = .75f) else accent.copy(alpha = .16f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(84.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(Brush.linearGradient(listOf(start, end))),
+            contentAlignment = Alignment.BottomStart
+        ) {
+            Box(
+                Modifier
+                    .padding(8.dp)
+                    .width(52.dp)
+                    .height(66.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = .17f))
+                    .border(1.dp, Color.White.copy(alpha = .24f), RoundedCornerShape(10.dp))
+            ) {
+                Box(
+                    Modifier
+                        .padding(6.dp)
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = .72f))
+                )
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .size(19.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = .85f))
+                )
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Box(
-                        Modifier
-                            .size(if (isActive) 46.dp else 40.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(swatch.swatchStart, swatch.swatchEnd)))
-                            .border(
-                                width = if (isActive) 2.5.dp else 1.dp,
-                                color = if (isActive) palette.textPrimary.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.10f),
-                                shape = CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isActive) {
-                            Box(
-                                Modifier.size(18.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.92f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.Star, contentDescription = "Selected", tint = swatch.accent, modifier = Modifier.size(11.dp))
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        swatch.displayName,
-                        fontSize = 10.sp,
-                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                        color = palette.textPrimary,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF5A57)))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF34C759)))
+                }
+            }
+
+            if (selected) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = .92f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = accent,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
         }
-        Spacer(Modifier.height(20.dp))
+
+        Spacer(Modifier.height(9.dp))
         Text(
-            "${palette.displayName} is set as your default\nChange it anytime in settings",
-            color = palette.textSecondary.copy(alpha = .85f),
-            fontSize = 12.5.sp,
-            textAlign = TextAlign.Center,
-            fontWeight = FontWeight.Medium,
-            lineHeight = 18.sp
+            name,
+            color = LocalDialerPalette.current.textPrimary,
+            fontSize = 13.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1
         )
-
-        Spacer(Modifier.height(44.dp))
-
-        Box(
-            Modifier.size(68.dp).glassCircle(palette, tintAlpha = 0.4f),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.Star, null, tint = palette.accent, modifier = Modifier.size(32.dp))
-        }
-        Spacer(Modifier.height(18.dp))
-        Text("You're all set", color = palette.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, letterSpacing = (-0.2).sp)
+        Text(
+            subtitle,
+            color = LocalDialerPalette.current.textSecondary,
+            fontSize = 10.5.sp,
+            maxLines = 1
+        )
     }
 }
+
