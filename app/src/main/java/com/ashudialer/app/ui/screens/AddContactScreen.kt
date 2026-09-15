@@ -115,7 +115,16 @@ fun AddContactScreen(
     val canSave = firstName.isNotBlank() && phoneNumber.isNotBlank()
     val fullName = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            // Same missing-inset issue as ContactDetailScreen - this
+            // screen's top row (back arrow) and its own avatar/camera-badge
+            // photo picker further down had nothing clearing the status
+            // bar or the physical camera cutout, so both could render
+            // partly under the notch/punch-hole area.
+            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically

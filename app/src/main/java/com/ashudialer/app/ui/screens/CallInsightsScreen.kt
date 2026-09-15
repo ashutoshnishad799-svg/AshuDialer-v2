@@ -39,13 +39,22 @@ fun CallInsightsScreen(
     period: InsightsPeriod,
     onPeriodChange: (InsightsPeriod) -> Unit,
     onBack: () -> Unit,
+    // Controlled from MainActivity rather than owned here via an internal
+    // remember, so the top-level system-back handler can see and step
+    // through this exact same state - see the BackHandler(CALL_INSIGHTS)
+    // branch in MainActivity for why: without that, a hardware/gesture
+    // back press while a day's detail was open skipped past this screen
+    // entirely and closed all of Call Insights instead of returning to
+    // the day list, even though the on-screen back arrow (onBack below)
+    // already handled that one step correctly.
+    selectedDay: DailyCallSummary?,
+    onSelectedDayChange: (DailyCallSummary?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
-    var selectedDay by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<DailyCallSummary?>(null) }
 
     if (selectedDay != null) {
-        DayInsightDetailScreen(summary = selectedDay!!, onBack = { selectedDay = null }, modifier = modifier)
+        DayInsightDetailScreen(summary = selectedDay, onBack = { onSelectedDayChange(null) }, modifier = modifier)
         return
     }
 
@@ -96,14 +105,14 @@ fun CallInsightsScreen(
             item {
                 SectionTitle("Daily activity", "Tap a day for the complete breakdown", palette)
                 Spacer(Modifier.height(8.dp))
-                DayOverDayChart(insights.dailySummaries, palette) { selectedDay = it }
+                DayOverDayChart(insights.dailySummaries, palette) { onSelectedDayChange(it) }
                 Spacer(Modifier.height(12.dp))
             }
 
             item {
                 Column(Modifier.fillMaxWidth().glassCard(palette, 20.dp).padding(vertical = 4.dp)) {
                     insights.dailySummaries.asReversed().forEachIndexed { index, summary ->
-                        DaySummaryRow(summary, palette) { selectedDay = summary }
+                        DaySummaryRow(summary, palette) { onSelectedDayChange(summary) }
                         if (index != insights.dailySummaries.lastIndex) HorizontalDivider(color = palette.cardBorder)
                     }
                 }
@@ -234,28 +243,52 @@ private fun DirectionStat(
 @Composable
 private fun DayOverDayChart(summaries: List<DailyCallSummary>, palette: DialerPalette, onDayClick: (DailyCallSummary) -> Unit) {
     val maxCount = (summaries.maxOfOrNull { it.totalCalls } ?: 0).coerceAtLeast(1)
+    // Fixed row height split explicitly into a bar zone and a label zone,
+    // rather than letting the bar's fillMaxHeight(fraction) share the same
+    // measurement pass as the label Text below it inside one Column. That
+    // combination - a weight(1f) column, bottom-aligned, holding a
+    // fraction-height Box directly above a Text - is a known Compose edge
+    // case where one child in a Row of many identically-configured
+    // children can measure to a zero/near-zero height on a single pass
+    // and never get remeasured, silently dropping just that one bar+label
+    // while its siblings render fine (the "Wed missing but every other
+    // day fine" symptom). Giving the bar a fixed-height Box to grow
+    // within, separate from a fixed-height label slot below it, removes
+    // the shared-measurement path entirely.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(palette, 16.dp)
-            .padding(horizontal = 14.dp, vertical = 18.dp)
-            .height(120.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
+            .padding(horizontal = 10.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         summaries.forEach { summary ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f).clickable { onDayClick(summary) }) {
-                val count = summary.totalCalls
-                val fraction = count.toFloat() / maxCount.toFloat()
+            val count = summary.totalCalls
+            val fraction = (count.toFloat() / maxCount.toFloat()).coerceIn(0.04f, 1f)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onDayClick(summary) }
+            ) {
                 Box(
                     modifier = Modifier
-                        .width(18.dp)
-                        .fillMaxHeight(fraction.coerceAtLeast(0.04f))
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (count > 0) palette.accent else palette.cardBorder)
-                )
+                        .fillMaxWidth()
+                        .height(86.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(18.dp)
+                            .fillMaxHeight(fraction)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (count > 0) palette.accent else palette.cardBorder)
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
-                Text(summary.label.substringBefore(','), fontSize = 9.sp, color = palette.textSecondary, maxLines = 1)
+                Box(modifier = Modifier.height(14.dp), contentAlignment = Alignment.Center) {
+                    Text(summary.label.substringBefore(','), fontSize = 9.sp, color = palette.textSecondary, maxLines = 1)
+                }
             }
         }
     }

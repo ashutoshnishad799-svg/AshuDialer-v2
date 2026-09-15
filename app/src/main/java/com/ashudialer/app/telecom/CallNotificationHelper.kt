@@ -385,8 +385,25 @@ object CallNotificationHelper {
         views.setOnClickPendingIntent(R.id.compact_mute, CallActionReceiver.toggleMuteIntent(context))
         views.setOnClickPendingIntent(R.id.compact_end, CallActionReceiver.endIntent(context))
 
-        val currentRoute = AudioRouteController(context).currentRoute()
-        val muted = CallAudioQuickActions.isMuted(context)
+        // Prefer the live service's own CallAudioState (the same Telecom-
+        // confirmed object PixelInCallService.onCallAudioStateChanged
+        // consumes) over independent raw reads, so this notification
+        // reports the exact same route/mute values the in-call screen is
+        // showing at the same moment - falls back to the standalone
+        // controller/AudioManager reads only if there's no live call
+        // service to ask (e.g. notification rebuilt just as the call ends).
+        val liveState = PixelInCallService.instance?.callAudioState
+        val currentRoute = if (liveState != null) {
+            when (liveState.route) {
+                android.telecom.CallAudioState.ROUTE_SPEAKER -> AudioRoute.SPEAKER
+                android.telecom.CallAudioState.ROUTE_BLUETOOTH -> AudioRoute.BLUETOOTH
+                android.telecom.CallAudioState.ROUTE_WIRED_HEADSET -> AudioRoute.WIRED_HEADSET
+                else -> AudioRoute.EARPIECE
+            }
+        } else {
+            AudioRouteController(context).currentRoute()
+        }
+        val muted = liveState?.isMuted ?: CallAudioQuickActions.isMuted(context)
         // 3-way state, 2 backgrounds: Speaker and Bluetooth both read as
         // "active" (highlighted) since either is a deliberate alternate
         // route the person chose, while Earpiece (the quiet default) reads
@@ -430,8 +447,19 @@ object CallNotificationHelper {
             views.setOnClickPendingIntent(R.id.notif_btn_mute, CallActionReceiver.toggleMuteIntent(context))
             views.setOnClickPendingIntent(R.id.notif_btn_end, CallActionReceiver.endIntent(context))
 
-            val currentRoute = AudioRouteController(context).currentRoute()
-            val muted = CallAudioQuickActions.isMuted(context)
+            // Same live-state-first pattern as buildCompactOngoingLayout above.
+            val liveState = PixelInCallService.instance?.callAudioState
+            val currentRoute = if (liveState != null) {
+                when (liveState.route) {
+                    android.telecom.CallAudioState.ROUTE_SPEAKER -> AudioRoute.SPEAKER
+                    android.telecom.CallAudioState.ROUTE_BLUETOOTH -> AudioRoute.BLUETOOTH
+                    android.telecom.CallAudioState.ROUTE_WIRED_HEADSET -> AudioRoute.WIRED_HEADSET
+                    else -> AudioRoute.EARPIECE
+                }
+            } else {
+                AudioRouteController(context).currentRoute()
+            }
+            val muted = liveState?.isMuted ?: CallAudioQuickActions.isMuted(context)
             views.setInt(
                 R.id.notif_btn_speaker, "setBackgroundResource",
                 if (currentRoute == AudioRoute.EARPIECE) R.drawable.bg_notification_pill_neutral else R.drawable.bg_notification_pill_active

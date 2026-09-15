@@ -1,11 +1,14 @@
 package com.ashudialer.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.Mic
@@ -68,6 +71,17 @@ fun VideoCallScreen(
     typeToTalkAvailable: Boolean = false,
     typedMessages: List<com.ashudialer.app.telecom.TypedMessage> = emptyList(),
     onSendTypedMessage: (String) -> Unit = {},
+    // Non-null only when there's an actual number this screen can hand
+    // off to for a plain voice call instead - see VideoCallActivity's
+    // fallbackVoiceNumber for exactly when that is. Kept nullable rather
+    // than always showing a button, since a null callback here means
+    // there's genuinely no number available to fall back to on this
+    // particular call (most commonly: this is the callee side and the
+    // caller's signaling session hasn't reported a callerNumber, either
+    // because it predates this field or they had no number configured in
+    // their own settings) - showing a button that can't actually place a
+    // call would be worse than not showing one.
+    onSwitchToVoiceCall: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // The system's floating PiP window is only a couple of centimetres
@@ -157,7 +171,13 @@ fun VideoCallScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
+                // Same cutout gap as CallScreen/IncomingCallScreen/etc. -
+                // this is the caller-name row directly under the top edge,
+                // which is exactly the kind of element that ends up
+                // partly hidden behind a punch-hole camera on some
+                // devices if only the status bar height (not the cutout
+                // itself) is accounted for.
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
                 .padding(start = 20.dp, top = 12.dp, end = 100.dp)
         ) {
             Text(callerName, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
@@ -172,6 +192,32 @@ fun VideoCallScreen(
                     fontWeight = FontWeight.Medium,
                     lineHeight = 17.sp
                 )
+                // Only offered once video has actually failed (not merely
+                // "connecting" or mid-call reconnecting) and only when
+                // there's a real number to hand off to - see
+                // onSwitchToVoiceCall's own doc above for when that is.
+                // Voice genuinely doesn't need data/Firebase/WebRTC the
+                // way this video call does, so this is a real working
+                // alternative in exactly the moment video isn't panning
+                // out, not a placeholder.
+                if (isFailureMessage && onSwitchToVoiceCall != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF34C759))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onSwitchToVoiceCall() }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                    ) {
+                        Icon(Icons.Filled.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Switch to voice call", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
 

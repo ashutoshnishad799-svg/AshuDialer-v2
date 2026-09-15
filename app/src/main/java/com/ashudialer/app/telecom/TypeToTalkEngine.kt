@@ -38,6 +38,22 @@ class TypeToTalkEngine(context: Context) : TextToSpeech.OnInitListener {
     private var onMessageStateChanged: ((TypedMessage) -> Unit)? = null
     private val idsByUtteranceId = mutableMapOf<String, String>()
 
+    // Set at init as the engine-wide default (kept as-is below), but also
+    // rebuilt and passed explicitly on every single speak() call via a
+    // Bundle - see speakInternal(). Some OEM TTS engine implementations
+    // only reliably honor setAudioAttributes() as a *hint*, not a binding
+    // default, and fall back to the normal media/notification stream
+    // per-utterance unless the stream/attributes are also included
+    // directly in that call's own params Bundle. That gap - speak() being
+    // called with `null` params, relying solely on the init-time global
+    // setting - was the actual cause of typed messages playing out loud
+    // on this phone's own speaker instead of only being audible to the
+    // other party on the call.
+    private val communicationAudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
     init {
         tts = TextToSpeech(appContext, this)
     }
@@ -46,12 +62,7 @@ class TypeToTalkEngine(context: Context) : TextToSpeech.OnInitListener {
         ready = status == TextToSpeech.SUCCESS
         if (!ready) return
         tts?.language = Locale.getDefault()
-        tts?.setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-        )
+        tts?.setAudioAttributes(communicationAudioAttributes)
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String) {
                 idsByUtteranceId[utteranceId]?.let { messageId ->
@@ -108,7 +119,18 @@ class TypeToTalkEngine(context: Context) : TextToSpeech.OnInitListener {
     private fun speakInternal(text: String, messageId: String = UUID.randomUUID().toString()) {
         val utteranceId = "type_to_talk_$messageId"
         idsByUtteranceId[utteranceId] = messageId
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, utteranceId)
+        // KEY_PARAM_STREAM (STREAM_VOICE_CALL) alongside the AudioAttributes
+        // themselves - belt and suspenders, since some engines look at the
+        // legacy stream param, others at AudioAttributes, and a couple of
+        // OEM engines have been seen honoring neither unless both are
+        // present. Passed on THIS call's own params Bundle rather than
+        // trusting the init-time engine-wide default alone (see the field
+        // doc above for why that wasn't reliable).
+        val params = android.os.Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_VOICE_CALL)
+        }
+        tts?.setAudioAttributes(communicationAudioAttributes)
+        tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
     }
 
     /** Stops whatever is currently speaking and clears anything queued - used when the person ends the call while a message is still playing. */

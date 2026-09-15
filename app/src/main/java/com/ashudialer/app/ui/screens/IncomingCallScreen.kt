@@ -90,10 +90,32 @@ private fun accentHueDegrees(color: Color): Float {
  * to one identical dark color on every light theme.
  */
 private fun incomingCallBackdropColor(palette: DialerPalette): Color {
-    // Keep the incoming screen inside the same palette family as the main app.
-    // Light themes stay light/airy, while dark themes stay dark and get a
-    // soft accent glow behind the liquid-glass layers.
-    return palette.solidBackground
+    // Dark palettes: their own solidBackground already IS a proper dark
+    // backdrop (Black theme's is literally #000000), so use it directly -
+    // this is what makes Black theme's incoming call screen actually
+    // black rather than a generic navy.
+    if (palette.isDark) return palette.solidBackground
+
+    // Light palettes (Gradient, Ocean, Sunset, Violet, RoseGold, White,
+    // Rainbow): solidBackground on every one of these is intentionally
+    // pale/airy for the REST of the app, which is exactly wrong for this
+    // screen - the aurora glow and white-on-dark glass text/avatar below
+    // both need real contrast against something dark, not a near-white
+    // fill. This was previously just `return palette.solidBackground`
+    // directly, silently ignoring this exact reasoning already written
+    // above in this file's class doc - the result was every light
+    // theme's incoming call rendering washed-out/low-contrast instead of
+    // the "deep tint derived from the palette's own accent" the comment
+    // actually promised. HSV manipulation on the palette's own accent
+    // color (not a fixed navy) is what keeps this genuinely per-theme:
+    // Ocean Blue's accent yields a deep blue backdrop, Violet's yields
+    // deep violet, Rainbow's accent (a saturated purple) yields a deep
+    // purple backdrop rather than its own pale lavender solidBackground.
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(palette.accent.toArgb(), hsv)
+    hsv[1] = hsv[1].coerceAtLeast(0.55f) // ensure real saturation even for a muted accent
+    hsv[2] = 0.16f // fixed low value = a consistently deep, near-black-but-hued backdrop
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 /**
@@ -188,7 +210,17 @@ fun IncomingCallScreen(
     ) {
         AuroraBackdrop(hue = hue, backdropBase = backdropBase, isDark = palette.isDark)
 
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // Same cutout-aware fix as CallScreen/ContactDetailScreen/
+                // AddContactScreen - this screen's caller avatar
+                // (GlassAvatarRings below) is the top-anchored element most
+                // at risk of sitting under a punch-hole cutout, so
+                // statusBarsPadding() alone isn't assumed sufficient here
+                // either.
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+        ) {
             Spacer(Modifier.weight(0.36f))
 
             Column(

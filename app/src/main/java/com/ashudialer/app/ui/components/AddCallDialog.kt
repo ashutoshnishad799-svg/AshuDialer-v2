@@ -55,11 +55,33 @@ fun AddCallDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        // Default DialogProperties cap the window to a platform max-width
+        // and let it size to content, which is fine for a small alert but
+        // was fighting this dialog's own fillMaxWidth()/fillMaxHeight(0.86f)
+        // - usePlatformDefaultWidth = false lets this Column's own
+        // modifiers be the actual source of truth for its size, matching
+        // what a full-screen contact picker needs.
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.86f)
+                // InCallActivity runs enableEdgeToEdge(), so anything it
+                // launches - this Dialog included - draws under the status
+                // bar by default unless it adds its own inset padding. This
+                // dialog didn't have any, so its top row ("Add call" / the
+                // subtitle text) started at y=0 and visually merged with
+                // the status bar's clock and battery/signal icons instead
+                // of sitting cleanly below them. Upgraded to the same
+                // statusBars+displayCutout union as CallScreen/
+                // ContactDetailScreen/etc. rather than statusBarsPadding()
+                // alone, for the same reason: the physical camera cutout
+                // can protrude further than the status bar's own reported
+                // height on some devices/OEM skins.
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
                 .imePadding()
                 .clip(RoundedCornerShape(24.dp))
                 .background(palette.background)

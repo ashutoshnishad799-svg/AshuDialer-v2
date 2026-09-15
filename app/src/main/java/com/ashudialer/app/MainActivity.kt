@@ -215,6 +215,16 @@ class MainActivity : ComponentActivity() {
             val quietHoursSchedule by viewModel.quietHoursSchedule.collectAsState()
             val callInsights by viewModel.callInsights.collectAsState()
             var insightsPeriod by remember { mutableStateOf(com.ashudialer.app.data.InsightsPeriod.WEEK) }
+            // Lifted out of CallInsightsScreen's own internal remember so
+            // the top-level BackHandler chain below can see and step
+            // through it. It used to live only inside CallInsightsScreen,
+            // invisible to system back - a hardware/gesture back press
+            // while looking at one day's detail skipped straight past it
+            // and hit the general overlay handler's `else -> overlay =
+            // OverlayScreen.NONE` branch, closing Insights completely
+            // instead of returning to the day list the way the screen's
+            // own back arrow already correctly did.
+            var insightsSelectedDay by remember { mutableStateOf<com.ashudialer.app.data.DailyCallSummary?>(null) }
 
 
             var activeCall by remember { mutableStateOf<android.telecom.Call?>(null) }
@@ -792,6 +802,17 @@ class MainActivity : ComponentActivity() {
                         OverlayScreen.RECORDING_SETTINGS -> overlay = OverlayScreen.RECORDINGS
                         OverlayScreen.RECORDING_ROOT_SETUP, OverlayScreen.RECORDING_ACCESSIBILITY_SETUP, OverlayScreen.RECORDING_ADB_SETUP ->
                             overlay = OverlayScreen.RECORDING_SETTINGS
+                        OverlayScreen.CALL_INSIGHTS -> {
+                            // Same one-step-at-a-time pattern as Private
+                            // Space above: land back on the day list first
+                            // if a day's detail is open, and only close
+                            // Insights entirely once already at the list.
+                            if (insightsSelectedDay != null) {
+                                insightsSelectedDay = null
+                            } else {
+                                overlay = OverlayScreen.NONE
+                            }
+                        }
                         else -> overlay = OverlayScreen.NONE
                     }
                 }
@@ -825,6 +846,8 @@ class MainActivity : ComponentActivity() {
                 } else if (onboardingComplete == false) {
                     OnboardingScreen(
                         onFinished = { scope.launch { app.onboardingPreference.markComplete() } },
+                        currentThemeId = themeId,
+                        onThemeSelected = { id -> viewModel.setTheme(id) },
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if ((!hasPermissions || !isDefaultDialer) && overlay == OverlayScreen.NONE) {
@@ -1063,7 +1086,16 @@ class MainActivity : ComponentActivity() {
                                                     recordings = com.ashudialer.app.telecom.CallRecorder.listRecordings(context)
                                                     overlay = OverlayScreen.RECORDINGS
                                                 }
-                                                "Call Insights" -> overlay = OverlayScreen.CALL_INSIGHTS
+                                                "Call Insights" -> {
+                                                    // Reset in case a previous
+                                                    // Insights session was left
+                                                    // mid-day-detail - opening
+                                                    // fresh should always start
+                                                    // at the day list, not
+                                                    // wherever it was last closed.
+                                                    insightsSelectedDay = null
+                                                    overlay = OverlayScreen.CALL_INSIGHTS
+                                                }
                                                 "Captions & Type-to-talk" -> overlay = OverlayScreen.CAPTIONS_TYPE_TO_TALK
                                                 "Check for updates" -> {
                                                     updateCheck = null
@@ -1370,6 +1402,8 @@ class MainActivity : ComponentActivity() {
                                                 period = insightsPeriod,
                                                 onPeriodChange = { insightsPeriod = it },
                                                 onBack = { overlay = OverlayScreen.NONE },
+                                                selectedDay = insightsSelectedDay,
+                                                onSelectedDayChange = { insightsSelectedDay = it },
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         }

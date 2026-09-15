@@ -19,6 +19,14 @@ data class SignalingSession(
     val callerUid: String,
     val calleeNumber: String,
     val callerCarrierId: String?,
+    // Added so the receiving side of a video call has an actual dialable
+    // number to fall back to for a plain voice call - previously only
+    // calleeNumber (the recipient's own number) was stored, meaning
+    // ROLE_CALLEE genuinely had no number of any kind to work with if
+    // video failed or the person just wanted to switch to a regular call
+    // instead. Nullable/blank-tolerant since older in-flight sessions
+    // written before this field existed won't have it.
+    val callerNumber: String? = null,
     val offerSdp: String? = null,
     val answerSdp: String? = null,
     val status: String = STATUS_RINGING
@@ -81,6 +89,7 @@ class VideoCallSignalingRepository {
         callerUid: String,
         calleeNumber: String,
         callerCarrierId: String?,
+        callerNumber: String?,
         offerSdp: String
     ): Boolean {
         val doc = callDoc(callId) ?: return false
@@ -90,6 +99,7 @@ class VideoCallSignalingRepository {
                     "callerUid" to callerUid,
                     "calleeNumber" to calleeNumber,
                     "callerCarrierId" to callerCarrierId,
+                    "callerNumber" to callerNumber,
                     "offerSdp" to offerSdp,
                     "status" to SignalingSession.STATUS_RINGING,
                     "createdAtMillis" to System.currentTimeMillis()
@@ -160,6 +170,7 @@ class VideoCallSignalingRepository {
                     callerUid = snapshot.getString("callerUid") ?: "",
                     calleeNumber = snapshot.getString("calleeNumber") ?: "",
                     callerCarrierId = snapshot.getString("callerCarrierId"),
+                    callerNumber = snapshot.getString("callerNumber"),
                     offerSdp = snapshot.getString("offerSdp"),
                     answerSdp = snapshot.getString("answerSdp"),
                     status = snapshot.getString("status") ?: SignalingSession.STATUS_RINGING
@@ -191,6 +202,7 @@ class VideoCallSignalingRepository {
                             callerUid = d.getString("callerUid") ?: continue,
                             calleeNumber = d.getString("calleeNumber") ?: myNumber,
                             callerCarrierId = d.getString("callerCarrierId"),
+                            callerNumber = d.getString("callerNumber"),
                             offerSdp = d.getString("offerSdp"),
                             status = d.getString("status") ?: SignalingSession.STATUS_RINGING
                         )

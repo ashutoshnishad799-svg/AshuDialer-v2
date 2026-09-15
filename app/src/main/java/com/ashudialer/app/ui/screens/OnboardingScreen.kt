@@ -76,6 +76,8 @@ import com.ashudialer.app.ui.theme.LocalDialerPalette
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
+    currentThemeId: String,
+    onThemeSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -191,7 +193,7 @@ fun OnboardingScreen(
                 ) { page ->
                     when (page) {
                         0 -> WelcomePage(palette)
-                        else -> PersonalizePage(palette)
+                        else -> PersonalizePage(palette, currentThemeId, onThemeSelected)
                     }
                 }
             }
@@ -340,7 +342,11 @@ private fun WelcomePage(palette: DialerPalette) {
 }
 
 @Composable
-private fun PersonalizePage(palette: DialerPalette) {
+private fun PersonalizePage(
+    palette: DialerPalette,
+    currentThemeId: String,
+    onThemeSelected: (String) -> Unit
+) {
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Make it yours", color = palette.textPrimary, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, letterSpacing = (-0.3).sp)
         Spacer(Modifier.height(8.dp))
@@ -351,25 +357,70 @@ private fun PersonalizePage(palette: DialerPalette) {
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(32.dp))
-        Box(
-            Modifier.fillMaxWidth().wrapContentHeight()
+        // THE FIX for "onboarding says Pick a theme but nothing here is
+        // actually tappable": this used to render AllPalettes.take(5) as
+        // plain, non-clickable Boxes - display-only, no onClick at all -
+        // so the whole page was really just showing whatever theme
+        // happened to already be active, with no way to change it from
+        // here despite the heading and subtitle both telling the person
+        // to pick one. Every palette (not just the first 5 - Rainbow and
+        // the others further down the list were previously unreachable
+        // from onboarding entirely) is now shown in a wrapping grid, each
+        // swatch clickable, calling onThemeSelected immediately so the
+        // whole screen re-themes live (palette here is
+        // LocalDialerPalette.current, so tapping a swatch really does
+        // preview it in place, not just record a choice for later) -
+        // matching what "pick a theme now" was actually promising.
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
                 .glassCard(palette, corner = 28.dp, tintAlpha = 0.45f)
-                .padding(vertical = 22.dp, horizontal = 16.dp),
-            contentAlignment = Alignment.Center
+                .padding(vertical = 20.dp, horizontal = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                AllPalettes.take(5).forEach { swatch ->
-                    val isActive = swatch.id == palette.id
+            AllPalettes.forEach { swatch ->
+                val isActive = swatch.id == currentThemeId
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(58.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onThemeSelected(swatch.id) }
+                        .padding(vertical = 4.dp)
+                ) {
                     Box(
                         Modifier
-                            .size(if (isActive) 46.dp else 36.dp)
+                            .size(if (isActive) 46.dp else 40.dp)
                             .clip(CircleShape)
                             .background(Brush.linearGradient(listOf(swatch.swatchStart, swatch.swatchEnd)))
                             .border(
-                                width = if (isActive) 2.5.dp else 0.dp,
-                                color = if (isActive) palette.textPrimary.copy(alpha = 0.7f) else Color.Transparent,
+                                width = if (isActive) 2.5.dp else 1.dp,
+                                color = if (isActive) palette.textPrimary.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.10f),
                                 shape = CircleShape
-                            )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isActive) {
+                            Box(
+                                Modifier.size(18.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.92f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.Star, contentDescription = "Selected", tint = swatch.accent, modifier = Modifier.size(11.dp))
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        swatch.displayName,
+                        fontSize = 10.sp,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                        color = palette.textPrimary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
                     )
                 }
             }

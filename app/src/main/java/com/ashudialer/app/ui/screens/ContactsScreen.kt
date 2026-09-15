@@ -2,6 +2,7 @@
 
 package com.ashudialer.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -113,6 +114,26 @@ fun ContactsScreen(
     var selectedContactIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val selectionMode = selectedContactIds.isNotEmpty()
+
+    // Same class of bug as Call Insights' day-detail screen: selectionMode
+    // here is entirely local, derived state with nothing wiring it into
+    // the system back button. Unlike Insights (an overlay, so there was
+    // an existing top-level BackHandler to extend), this is a bottom-nav
+    // tab with no back handling of its own at all, so a long-press
+    // selection with no BackHandler fell straight through to Android's
+    // default back behavior - which, with nothing else intercepting it
+    // at this point in the screen stack, meant exiting the app entirely
+    // instead of just clearing the selection the way the screen's own
+    // "X" button (onClick at the top of the selection toolbar) already
+    // does correctly.
+    //
+    // Ordered highest-priority-first: the delete confirmation dialog, if
+    // open, should close on its own before back touches selection at all
+    // - otherwise one back press would both dismiss the dialog AND drop
+    // the selection in a single step, which isn't what a person tapping
+    // back once would expect.
+    BackHandler(enabled = showDeleteConfirm) { showDeleteConfirm = false }
+    BackHandler(enabled = selectionMode && !showDeleteConfirm) { selectedContactIds = emptySet() }
 
 
     val filtered = remember(contacts, query) {

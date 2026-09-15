@@ -46,6 +46,22 @@ class PixelInCallService : InCallService() {
         private val _availableAudioRoutes = kotlinx.coroutines.flow.MutableStateFlow<List<AudioRoute>>(listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER))
         val availableAudioRoutesFlow: kotlinx.coroutines.flow.StateFlow<List<AudioRoute>> = _availableAudioRoutes
 
+        /**
+         * Same fix as _currentAudioRoute, applied to mute. Mute used to be
+         * driven by directly toggling AudioManager.isMicrophoneMute and
+         * immediately reading it back - a completely separate, synchronous
+         * path from the audio route's async Telecom-callback path. That
+         * mismatch in timing is what made the two buttons visibly fall out
+         * of sync with each other (mute would flip instantly while speaker
+         * was still mid-transition, or vice versa on slower OEM Telecom
+         * stacks). CallAudioState - the same object onCallAudioStateChanged
+         * already receives for route - also carries isMuted, so both
+         * buttons now update from the exact same callback, at the exact
+         * same time, every time.
+         */
+        private val _isMuted = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val isMutedFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isMuted
+
 
         /**
          * Pick the call that should be represented by the foreground in-call UI.
@@ -162,8 +178,23 @@ class PixelInCallService : InCallService() {
             if (mask and android.telecom.CallAudioState.ROUTE_BLUETOOTH != 0) supported.add(AudioRoute.BLUETOOTH)
             if (mask and android.telecom.CallAudioState.ROUTE_WIRED_HEADSET != 0) supported.add(AudioRoute.WIRED_HEADSET)
             if (supported.isNotEmpty()) _availableAudioRoutes.value = supported
+            _isMuted.value = audioState.isMuted
         } catch (e: Exception) {
             Log.w(TAG, "Failed to process audio state change", e)
+        }
+    }
+
+    /**
+     * Requests mute through Telecom's own setMuted(), same as setAudioRoute()
+     * requests a route - a request, not an instant local write. The real
+     * state always comes back through onCallAudioStateChanged above, kept
+     * in lockstep with the route so both buttons settle together.
+     */
+    fun requestMuted(muted: Boolean) {
+        try {
+            setMuted(muted)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request mute state", e)
         }
     }
 

@@ -554,7 +554,28 @@ fun DialerScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Backspace, contentDescription = "Backspace", tint = palette.textSecondary)
+                    Icon(
+                        Icons.Filled.Backspace,
+                        contentDescription = "Backspace",
+                        tint = palette.textSecondary,
+                        // THE FIX for "backspace button looks smaller than
+                        // everything else on the dialpad": this Icon had
+                        // no explicit size at all, so it fell back to
+                        // Material 3's unstated default (24.dp). That
+                        // would be fine in isolation, but the
+                        // Icons.Filled.Backspace glyph itself has more
+                        // internal empty space within its 24x24 viewBox
+                        // than bulkier glyphs like Phone (used at 26.dp
+                        // just above for the call button) or the numeric
+                        // dialpad glyphs elsewhere on this screen - at
+                        // the same nominal box size it reads visibly
+                        // smaller/lighter than its neighbors, which is
+                        // exactly the "chhota ho ja raha h" (looks like
+                        // it's shrinking) effect in the screenshot. Sizing
+                        // it up to visually match its siblings' weight,
+                        // rather than leaving it at the unstated default.
+                        modifier = Modifier.size(26.dp)
+                    )
                 }
             }
         }

@@ -100,7 +100,21 @@ fun ContactDetailScreen(
     val palette = LocalDialerPalette.current
 
     Box(modifier = modifier.fillMaxSize().background(palette.background)) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                // This screen had no status-bar/cutout inset handling at
+                // all, so its top row (back arrow) and, further down, the
+                // avatar with its camera badge could sit directly under
+                // the status bar - including the physical camera cutout
+                // on punch-hole phones, which is a separate inset from
+                // the status bar's own height and isn't automatically
+                // covered by statusBarsPadding() alone on every device/
+                // OEM skin. Combining both insets and padding by their
+                // union is the robust fix: it clears whichever of the
+                // two is actually taller at runtime.
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+        ) {
             item {
                 TopBar(onBack = onBack, palette = palette)
                 HeaderSection(

@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,19 +68,35 @@ fun CaptionSettingsScreen(
         CaptionLanguage.entries.find { it.name == captionLanguageName } ?: CaptionLanguage.ENGLISH_INDIA
     }
 
-    // Re-derived whenever the selected language changes, not cached once -
-    // switching from an already-downloaded language to one that isn't
-    // downloaded yet (or back) needs this to reflect the newly selected
-    // language's actual on-disk state, not the previous one's.
-    var modelState by remember(selectedLanguage) {
-        val cached = captionModelManager.cachedModelFor(selectedLanguage)
-        mutableStateOf<CaptionModelState>(
-            when {
-                cached != null -> CaptionModelState.Ready(cached)
-                else -> CaptionModelState.NotDownloaded
-            }
-        )
+    // One state slot PER language, not one shared slot for whichever
+    // language happens to be selected. Three languages can each be
+    // mid-download (or freshly deleted) independently of which one is
+    // currently selected as the active caption language - selecting
+    // English (India) doesn't pause a Hindi download, so the screen needs
+    // to track and redraw all three concurrently. A single shared
+    // `modelState` variable was the root cause of three symptoms at once:
+    // a language other than the selected one showed no live progress (its
+    // row had no state to read, so it looked frozen then jumped once
+    // something else forced a recomposition), and deleting a
+    // non-selected language didn't reset anything Compose was watching so
+    // the row never redrew as removed.
+    val modelStates = remember {
+        CaptionLanguage.entries.associateWith { language ->
+            val cached = captionModelManager.cachedModelFor(language)
+            mutableStateOf<CaptionModelState>(
+                when {
+                    cached != null -> CaptionModelState.Ready(cached)
+                    captionModelManager.isDownloaded(language) -> CaptionModelState.NotDownloaded
+                    else -> CaptionModelState.NotDownloaded
+                }
+            )
+        }
     }
+    // Bumped after any delete so isDownloaded()/sizeOnDiskMb() below -
+    // which read the filesystem directly and aren't state-backed - get
+    // re-read this composition instead of showing a stale "Downloaded"
+    // row for a file that's already gone.
+    var deletionTick by remember { mutableIntStateOf(0) }
 
     // On the Root build, captions can also work on normal SIM calls (see
     // CallCaptionEngine's class doc for exactly why) - on the Normal build,
@@ -160,10 +177,17 @@ fun CaptionSettingsScreen(
                 }
 
                 items(CaptionLanguage.entries.toList()) { language ->
+                    // Reading deletionTick here (even unused) ties this
+                    // row's isDownloaded/sizeOnDiskMb reads to that state,
+                    // so a delete anywhere in the list forces every row to
+                    // re-check the filesystem instead of only the row
+                    // whose own state object changed.
+                    @Suppress("UNUSED_EXPRESSION") deletionTick
+                    val languageState by modelStates.getValue(language)
                     LanguageRow(
                         language = language,
                         isSelected = language == selectedLanguage,
-                        state = if (language == selectedLanguage) modelState else null,
+                        state = languageState,
                         isDownloaded = captionModelManager.isDownloaded(language),
                         sizeOnDiskMb = if (captionModelManager.isDownloaded(language)) captionModelManager.sizeOnDiskMb(language) else null,
                         palette = palette,
@@ -172,12 +196,15 @@ fun CaptionSettingsScreen(
                         },
                         onDownload = {
                             scope.launch {
-                                captionModelManager.ensureReady(language) { state -> modelState = state }
+                                captionModelManager.ensureReady(language) { state ->
+                                    modelStates.getValue(language).value = state
+                                }
                             }
                         },
                         onDelete = {
                             captionModelManager.deleteDownloaded(language)
-                            modelState = CaptionModelState.NotDownloaded
+                            modelStates.getValue(language).value = CaptionModelState.NotDownloaded
+                            deletionTick++
                         }
                     )
                     Spacer(Modifier.height(10.dp))
@@ -273,45 +300,68 @@ private fun LanguageRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Fixed minimum height so the row doesn't visually shrink/grow
+            // (and its trailing icon doesn't appear to drift off-center)
+            // as its state cycles between a one-line "Not downloaded" text
+            // and other single-line states - every state here is one line
+            // now (see the progress text change below), so this is purely
+            // a stability guard, not compensating for varying content.
+            .heightIn(min = 52.dp)
             .glassCard(palette, 14.dp)
             .clickable { onSelect() }
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
             Text(language.displayName, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
             Spacer(Modifier.height(2.dp))
             Text(
                 when {
-                    state is CaptionModelState.Downloading -> "Downloading… ${state.progressPercent}%"
+                    // Fixed-width percent (padStart) so this line's length
+                    // doesn't change character-by-character as the number
+                    // climbs (e.g. "8%" -> "38%") - that shifting width
+                    // was pushing the trailing progress spinner left/right
+                    // slightly on every update, reading as a "crooked" row
+                    // next to the steady rows above and below it.
+                    state is CaptionModelState.Downloading -> "Downloading… ${state.progressPercent.toString().padStart(3, ' ')}%"
                     state is CaptionModelState.Unpacking -> "Setting up…"
                     state is CaptionModelState.Failed -> state.message
                     isDownloaded && sizeOnDiskMb != null -> "Downloaded — ${sizeOnDiskMb}MB on your phone"
                     else -> "Not downloaded yet — about 50MB"
                 },
                 fontSize = 11.5.sp,
-                color = if (state is CaptionModelState.Failed) palette.danger else palette.textSecondary
+                color = if (state is CaptionModelState.Failed) palette.danger else palette.textSecondary,
+                maxLines = 1
             )
         }
         Spacer(Modifier.width(8.dp))
-        when {
-            state is CaptionModelState.Downloading || state is CaptionModelState.Unpacking -> {
-                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = palette.accent)
-            }
-            isDownloaded -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isSelected) {
-                        Icon(Icons.Filled.Check, contentDescription = "Selected", tint = palette.accent, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Remove downloaded language", tint = palette.textSecondary, modifier = Modifier.size(18.dp))
+        // Fixed-size trailing slot for every state (spinner / check+delete
+        // / download button) instead of each branch sizing its own Row -
+        // this is what actually keeps the trailing icon pinned to the
+        // same vertical center regardless of which state is showing.
+        Box(
+            modifier = Modifier.size(width = 72.dp, height = 36.dp),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            when {
+                state is CaptionModelState.Downloading || state is CaptionModelState.Unpacking -> {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = palette.accent)
+                }
+                isDownloaded -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isSelected) {
+                            Icon(Icons.Filled.Check, contentDescription = "Selected", tint = palette.accent, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Remove downloaded language", tint = palette.textSecondary, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
-            }
-            else -> {
-                IconButton(onClick = onDownload, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Filled.Download, contentDescription = "Download", tint = palette.accent, modifier = Modifier.size(20.dp))
+                else -> {
+                    IconButton(onClick = onDownload, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Filled.Download, contentDescription = "Download", tint = palette.accent, modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }

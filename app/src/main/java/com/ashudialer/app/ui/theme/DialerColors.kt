@@ -224,8 +224,67 @@ val WhitePalette = DialerPalette(
     swatchEnd = Color(0xFFC7C7CC)
 )
 
+/**
+ * The one theme in this list whose "accha sa UI" comes from its background
+ * brush rather than a flat solidBackground - background is a true
+ * multi-stop rainbow gradient (not one hue tinted a few ways, like
+ * Sunset/Ocean/Violet each are), while every other palette property
+ * (accent, text colors, card/border colors) is still tuned as a normal,
+ * legible light theme on top of it. isDark = false is deliberate even
+ * though the background is colorful, not literally white: text/card
+ * contrast rules (liquidGlass's cardIsNearWhite branch, WhitePalette's
+ * border-darkening fix, etc.) all key off isDark to decide whether glass
+ * panels/text should assume a light or dark surface underneath them, and
+ * a light glass tint over saturated gradient colors is what actually
+ * reads as "glass sitting on a rainbow" rather than muddying the
+ * gradient with a dark tint that wasn't tuned for it.
+ *
+ * solidBackground (used for the plain-color needs - MaterialTheme's
+ * scheme.background, the base beneath any surface that isn't rendering
+ * this theme's own Brush) is fixed to a soft neutral rather than trying
+ * to pick "the one rainbow color" - most solid-fill call sites in this
+ * app are small chips/icons/status surfaces where a saturated color would
+ * clash depending on which part of the actual gradient it's meant to
+ * represent, so a calm base color is the safer default there.
+ */
+val RainbowPalette = DialerPalette(
+    id = "rainbow",
+    displayName = "Rainbow",
+    isDark = false,
+    background = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFFFF6B6B), // red
+            Color(0xFFFFB347), // orange
+            Color(0xFFFFE066), // yellow
+            Color(0xFF8CE99A), // green
+            Color(0xFF66D9E8), // cyan/blue
+            Color(0xFF9D8CFF), // indigo
+            Color(0xFFE599F7)  // violet
+        )
+    ),
+    solidBackground = Color(0xFFFDF6FF),
+    cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.82f),
+    cardBorder = Color(0xFFFFFFFF).copy(alpha = 0.75f),
+    navBackground = Color(0xFFFFFFFF).copy(alpha = 0.86f),
+    accent = Color(0xFF7B2FD6),
+    accentSoft = Color(0xFFF3E8FF),
+    textPrimary = Color(0xFF2B1049),
+    textSecondary = Color(0xFF6B5A85),
+    danger = Color(0xFFE0442E),
+    searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.92f),
+    avatarBackground = Color(0xFFF3E8FF),
+    callGreen = Color(0xFF34C759),
+    // A single representative sweep for the small circular theme-picker
+    // swatch (ThemePickerSheet draws swatchStart->swatchEnd as a 2-stop
+    // linear gradient, not the full 7-stop brush above) - red through
+    // violet reads as "this is the rainbow one" at a glance even
+    // compressed into a small circle with only two gradient stops.
+    swatchStart = Color(0xFFFF6B6B),
+    swatchEnd = Color(0xFF9D8CFF)
+)
+
 val AllPalettes = listOf(
-    GradientPalette, OceanPalette, SunsetPalette, RoseGoldPalette, WhitePalette, MidnightPalette, VioletPalette, DarkModePalette
+    GradientPalette, OceanPalette, SunsetPalette, RoseGoldPalette, WhitePalette, MidnightPalette, VioletPalette, DarkModePalette, RainbowPalette
 )
 
 fun paletteById(id: String): DialerPalette = AllPalettes.find { it.id == id } ?: GradientPalette

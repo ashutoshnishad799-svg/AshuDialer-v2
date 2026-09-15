@@ -109,6 +109,27 @@ class VideoCallActivity : ComponentActivity() {
             var remoteUidResolved by remember { mutableStateOf<String?>(null) }
             var callManager by remember { mutableStateOf<WebRtcCallManager?>(null) }
             var notSignedInMessage by remember { mutableStateOf<String?>(null) }
+            // Populated from the signaling session's callerNumber field,
+            // but only relevant/used on the ROLE_CALLEE side - the
+            // ROLE_CALLER side already knows who it's calling directly
+            // from the calleeNumber intent extra, so fallbackVoiceNumber
+            // below covers both without this needing to be read on that
+            // side.
+            var remoteCallerNumber by remember { mutableStateOf<String?>(null) }
+            // The one number this screen actually offers a voice-call
+            // fallback to, regardless of which role we're playing:
+            // - ROLE_CALLER already has calleeNumber from the intent that
+            //   started this Activity (the number this device dialed).
+            // - ROLE_CALLEE has no such extra (calleeIntent() never passed
+            //   one - see EXTRA_CALLEE_NUMBER usage above), so it relies
+            //   entirely on remoteCallerNumber arriving from the
+            //   signaling session above. Sessions created before
+            //   callerNumber existed as a field, or where the caller had
+            //   no myPhoneNumber configured in settings, will leave this
+            //   null - the fallback button (see VideoCallScreen) simply
+            //   doesn't render rather than offering a call that can't
+            //   actually be placed.
+            val fallbackVoiceNumber = if (role == ROLE_CALLER) calleeNumber.takeIf { it.isNotBlank() } else remoteCallerNumber?.takeIf { it.isNotBlank() }
 
             // Live captions: only ever attempted on this WebRTC/data call
             // path, and only once the model for the chosen language is
@@ -228,7 +249,13 @@ class VideoCallActivity : ComponentActivity() {
 
                     if (role == ROLE_CALLER) {
                         val myCarrier = CarrierDetector.currentCarrierId(this@VideoCallActivity)
-                        manager.createAndSendOffer(calleeNumber, myCarrier)
+                        // myNumber (resolved above) is now also stored on
+                        // the signaling session as callerNumber, so the
+                        // callee side has an actual dialable number to
+                        // offer a voice-call fallback with - see
+                        // "switch to voice call" wiring below, which reads
+                        // this same session field on the callee's side.
+                        manager.createAndSendOffer(calleeNumber, myCarrier, myNumber.takeIf { it.isNotBlank() })
                         phase = VideoCallPhase.RINGING_REMOTE
                     }
 
@@ -284,6 +311,13 @@ class VideoCallActivity : ComponentActivity() {
                 if (localUid == null) return@LaunchedEffect
                 app.videoCallSignalingRepository.observeCall(callId).collect { session ->
                     if (session == null) return@collect
+                    // Captured regardless of status, from whichever role's
+                    // side we're on - see fallbackVoiceNumber below for
+                    // why this needs both this and the ROLE_CALLER literal
+                    // extra to cover both directions of the call.
+                    if (role == ROLE_CALLEE) {
+                        remoteCallerNumber = session.callerNumber
+                    }
                     when (session.status) {
                         SignalingSession.STATUS_RINGING -> {
                             if (role == ROLE_CALLEE && session.offerSdp != null && remoteUidResolved == null) {
@@ -351,6 +385,28 @@ class VideoCallActivity : ComponentActivity() {
                     },
                     onSwitchCamera = { callManager?.switchCamera() },
                     onEndCall = { endCall() },
+                    // Only offered when there's an actual number to call -
+                    // see fallbackVoiceNumber's doc above for the two
+                    // cases (ROLE_CALLER always has one; ROLE_CALLEE only
+                    // does once the signaling session's callerNumber
+                    // field has arrived). VideoCallScreen treats a null
+                    // callback as "don't show this control at all" rather
+                    // than showing a button that would fail when tapped.
+                    onSwitchToVoiceCall = fallbackVoiceNumber?.let { number ->
+                        {
+                            // End the video call/signaling session first,
+                            // same teardown endCall() already does, then
+                            // hand off to the same placeCall() helper the
+                            // rest of the app uses for every other call -
+                            // no separate/duplicate calling path here.
+                            this@VideoCallActivity.lifecycleScope.launch {
+                                app.videoCallSignalingRepository.updateStatus(callId, SignalingSession.STATUS_ENDED)
+                                localUid?.let { app.videoCallSignalingRepository.teardown(callId, it) }
+                            }
+                            DialerPermissions.placeCall(this@VideoCallActivity, number)
+                            finish()
+                        }
+                    },
                     isInPip = isInPipMode.value
                 )
             }

@@ -128,8 +128,26 @@ class CallActionReceiver : BroadcastReceiver() {
                     }
                 }
                 ACTION_TOGGLE_MUTE -> {
-                    CallAudioQuickActions.toggleMute(context)
-                    CallNotificationHelper.refreshOngoing(context)
+                    // Same request-through-Telecom + settle-then-refresh
+                    // pattern as ACTION_TOGGLE_SPEAKER above, not a direct
+                    // synchronous AudioManager write. The old version here
+                    // refreshed the notification with zero delay while
+                    // speaker's handler above waited 180ms for Telecom to
+                    // actually finish - so tapping both close together
+                    // showed mute update first/instantly and speaker catch
+                    // up visibly later, which read as the two controls
+                    // being out of sync with each other.
+                    val service = PixelInCallService.instance
+                    if (service != null) {
+                        val currentlyMuted = service.callAudioState?.isMuted == true
+                        service.requestMuted(!currentlyMuted)
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            runCatching { CallNotificationHelper.refreshOngoing(context) }
+                        }, 180L)
+                    } else {
+                        CallAudioQuickActions.toggleMute(context)
+                        CallNotificationHelper.refreshOngoing(context)
+                    }
                 }
                 ACTION_CALL_BACK -> {
                     val number = intent.getStringExtra(EXTRA_CALL_BACK_NUMBER)

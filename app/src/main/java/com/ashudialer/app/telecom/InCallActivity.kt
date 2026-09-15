@@ -200,7 +200,6 @@ class InCallActivity : ComponentActivity() {
                 val id = typeToTalkEngine.speak(text)
                 typedMessages = (typedMessages + TypedMessage(id, text.trim(), isSpeaking = false)).takeLast(6)
             }
-            var isMuted by remember { mutableStateOf(CallAudioQuickActions.isMuted(this@InCallActivity)) }
             var recordingMode by remember { mutableStateOf(app.callRecorder.currentMode()) }
             var recordingSeconds by remember { mutableStateOf(app.callRecorder.elapsedSeconds()) }
             // True once recording has run silent (no getMaxAmplitude signal
@@ -245,6 +244,14 @@ class InCallActivity : ComponentActivity() {
             // fixes the speaker icon sometimes not matching the real route.
             val currentRoute by PixelInCallService.currentAudioRouteFlow.collectAsState()
             val availableRoutes by PixelInCallService.availableAudioRoutesFlow.collectAsState()
+            // Same StateFlow pattern as currentRoute above, and driven by
+            // the exact same onCallAudioStateChanged callback - mute and
+            // speaker now update from one shared source at the same
+            // moment, instead of mute's old separate synchronous
+            // AudioManager read racing against route's async Telecom
+            // callback (that race was the actual cause of the two
+            // buttons visibly falling out of sync with each other).
+            val isMuted by PixelInCallService.isMutedFlow.collectAsState()
 
 
             val dtmfPlayer = remember { DtmfPlayer() }
@@ -268,8 +275,14 @@ class InCallActivity : ComponentActivity() {
                     hasSecondCall = PixelInCallService.hasMultipleCalls
                     canMergeCalls = PixelInCallService.canMergeCalls()
                     canSwapCalls = PixelInCallService.canSwapCalls()
-                    isMuted = runCatching { CallAudioQuickActions.isMuted(this@InCallActivity) }
-                        .getOrDefault(false)
+                    // isMuted is no longer set here - it now comes solely
+                    // from PixelInCallService.isMutedFlow (see above),
+                    // which is driven by Telecom's own onCallAudioStateChanged.
+                    // Writing to it here too, from a direct AudioManager
+                    // read, was the second half of the same race that made
+                    // mute and speaker fall out of sync: this listener and
+                    // the Telecom callback could fire in either order and
+                    // stomp on each other's value.
                 }
                 PixelInCallService.addCallListener(listener)
                 onDispose { PixelInCallService.removeCallListener(listener) }
@@ -838,9 +851,24 @@ class InCallActivity : ComponentActivity() {
                                 } else null,
                                 isMuted = isMuted,
                                 onToggleMute = {
-                                    runCatching { CallAudioQuickActions.toggleMute(this@InCallActivity) }
-                                    isMuted = runCatching { CallAudioQuickActions.isMuted(this@InCallActivity) }
-                                        .getOrDefault(isMuted)
+                                    // Request through Telecom (same pattern as
+                                    // onSelectAudioRoute below) rather than
+                                    // writing AudioManager directly and reading
+                                    // it straight back. The real value always
+                                    // arrives via isMutedFlow once Telecom
+                                    // confirms it, which is what keeps this in
+                                    // lockstep with the speaker button instead
+                                    // of the two settling at different times.
+                                    val service = PixelInCallService.instance
+                                    if (service != null) {
+                                        service.requestMuted(!isMuted)
+                                    } else {
+                                        // No InCallService instance - same rare
+                                        // fallback case as onSelectAudioRoute's
+                                        // else branch below, with no Telecom
+                                        // callback to report back through.
+                                        runCatching { CallAudioQuickActions.toggleMute(this@InCallActivity) }
+                                    }
                                     runCatching { CallNotificationHelper.refreshOngoing(this@InCallActivity) }
                                 },
                                 onToggleRecording = {

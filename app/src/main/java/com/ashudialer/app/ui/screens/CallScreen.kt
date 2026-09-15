@@ -21,7 +21,6 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -206,7 +205,16 @@ fun CallScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                // Union with displayCutout, not statusBarsPadding() alone -
+                // this is the active-call screen where the caller's avatar
+                // sits near the top (see the avatar Column just below),
+                // which is exactly the element that was rendering partly
+                // under the physical camera cutout on punch-hole phones.
+                // statusBarsPadding() covers the status bar's own height
+                // but the cutout can protrude further on some devices/OEM
+                // skins, so it needs to be accounted for explicitly rather
+                // than assumed to already be inside the status bar inset.
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
         ) {
             // Keep the caller identity anchored near the top. The recording
             // indicator is a separate element, so starting a recording can
