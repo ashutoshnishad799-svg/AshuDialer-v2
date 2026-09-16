@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -46,12 +48,16 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.SpamAssessment
 import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 import com.ashudialer.app.ui.components.Avatar
+import com.ashudialer.app.ui.components.glassCard
+import com.ashudialer.app.ui.components.glassCircle
+import com.ashudialer.app.ui.components.liquidGlass
 
 /**
  * Nudges a color slightly lighter for the top of AuroraBackdrop's vertical
@@ -140,6 +146,79 @@ private fun rememberEntranceProgress(delayMs: Int): State<Float> {
 }
 
 /**
+ * Public entry point - dispatches to whichever incoming-call visual style is
+ * selected in Settings > Appearance > Incoming call screen
+ * (AppSettings.incomingCallStyle). Every style shares the exact same
+ * caller-info props and the exact same onAccept/onDecline/onQuickMessage
+ * callbacks, so InCallActivity's call site never needs to know which style
+ * is active - only this dispatcher does.
+ *
+ *  - "aurora" (default): the original design below - a soft multi-hue glow
+ *    behind frosted glass, draggable accept/decline circles.
+ *  - "orbit": a calmer, more premium mood - a single slowly-rotating glass
+ *    ring system around a large centered avatar disc, a soft one-hue
+ *    gradient mesh backdrop (rather than aurora's 5 separate colored
+ *    blobs), and accept/decline as two glass arcs you drag apart.
+ *  - "pulse": the most kinetic style - concentric glass ripples radiating
+ *    outward from the avatar like sonar, a slowly drifting two-tone mesh
+ *    gradient backdrop, and accept/decline as glass pill buttons with their
+ *    own ripple-on-press feedback.
+ *
+ * An unrecognized/stale style string (e.g. a future update removes a style)
+ * falls back to "aurora" rather than crashing, since this value round-trips
+ * through DataStore as a plain string.
+ */
+@Composable
+fun IncomingCallScreen(
+    callerName: String,
+    callerNumber: String,
+    spamAssessment: SpamAssessment? = null,
+    callerPhotoUri: String? = null,
+    isSavedContact: Boolean = false,
+    style: String = "aurora",
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onQuickMessage: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    when (style) {
+        "orbit" -> OrbitIncomingCallScreen(
+            callerName = callerName,
+            callerNumber = callerNumber,
+            spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri,
+            isSavedContact = isSavedContact,
+            onAccept = onAccept,
+            onDecline = onDecline,
+            onQuickMessage = onQuickMessage,
+            modifier = modifier
+        )
+        "pulse" -> PulseIncomingCallScreen(
+            callerName = callerName,
+            callerNumber = callerNumber,
+            spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri,
+            isSavedContact = isSavedContact,
+            onAccept = onAccept,
+            onDecline = onDecline,
+            onQuickMessage = onQuickMessage,
+            modifier = modifier
+        )
+        else -> AuroraIncomingCallScreen(
+            callerName = callerName,
+            callerNumber = callerNumber,
+            spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri,
+            isSavedContact = isSavedContact,
+            onAccept = onAccept,
+            onDecline = onDecline,
+            onQuickMessage = onQuickMessage,
+            modifier = modifier
+        )
+    }
+}
+
+/**
  * Complete redesign matching a reference iOS-style incoming call screen:
  * a soft, multi-hue aurora blur behind frosted glass, a plain glass-circle
  * avatar (no photo needed to look intentional), and two fixed accept/decline
@@ -174,7 +253,7 @@ private fun rememberEntranceProgress(delayMs: Int): State<Float> {
  *    the 8 themes picked it.
  */
 @Composable
-fun IncomingCallScreen(
+private fun AuroraIncomingCallScreen(
     callerName: String,
     callerNumber: String,
     spamAssessment: SpamAssessment? = null,
@@ -702,5 +781,687 @@ private fun SpamBadge(modifier: Modifier = Modifier) {
         Icon(Icons.Filled.WarningAmber, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
         Spacer(Modifier.width(6.dp))
         Text("Likely spam", fontSize = 12.5.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// ============================================================================
+// STYLE: "Orbit" - calmer/premium mood. A large centered avatar disc inside
+// slowly-rotating concentric glass rings (the "orbit"), a soft single-hue
+// mesh gradient backdrop (deliberately calmer than Aurora's 5-blob glow),
+// and accept/decline as two wide glass arcs anchored to the bottom corners
+// that the person drags toward center to answer/decline - a different
+// physical gesture from Aurora's vertical swipe-up, so the two styles don't
+// just look different, they feel different to use.
+// ============================================================================
+
+/**
+ * Orbit's backdrop: a still, single-hue radial mesh rather than Aurora's
+ * five separately-colored blobs - two overlapping soft radial gradients in
+ * the same hue family (a lighter core, a darker outer wash) plus one very
+ * slow drifting highlight, so it reads as calm and premium rather than
+ * energetic. Uses the same incomingCallBackdropColor/accentHueDegrees
+ * per-theme derivation Aurora uses, so Orbit is just as theme-aware.
+ */
+@Composable
+private fun OrbitMeshBackdrop(hue: Int, backdropBase: Color, isDark: Boolean) {
+    val transition = rememberInfiniteTransition(label = "orbit-mesh-drift")
+    val driftX by transition.animateFloat(
+        initialValue = -30f, targetValue = 30f,
+        animationSpec = infiniteRepeatable(tween(9000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "orbit-drift-x"
+    )
+    val driftY by transition.animateFloat(
+        initialValue = -18f, targetValue = 22f,
+        animationSpec = infiniteRepeatable(tween(11000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "orbit-drift-y"
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(lightenTowardBlack(backdropBase, 0.05f), backdropBase)
+                    )
+                )
+        )
+        // One slow-drifting soft highlight, well off-center, heavily
+        // blurred - the only moving light source in this style, which is
+        // what keeps Orbit feeling calm rather than static.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(radius = 160.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(x = driftX.dp, y = driftY.dp)
+                    .size(460.dp)
+                    .background(
+                        Color.hsl(hue.toFloat(), 0.55f, 0.50f).copy(alpha = if (isDark) 0.42f else 0.16f),
+                        CircleShape
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-60).dp)
+                    .size(320.dp)
+                    .background(
+                        Color.hsl(((hue + 20) % 360).toFloat(), 0.45f, 0.58f).copy(alpha = if (isDark) 0.30f else 0.12f),
+                        CircleShape
+                    )
+            )
+        }
+        // Same readability vignette treatment as Aurora, kept identical so
+        // the status bar and bottom action area stay legible.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (isDark) {
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.28f),
+                            0.24f to Color.Transparent,
+                            0.72f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.48f)
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.08f),
+                            0.25f to Color.Transparent,
+                            0.78f to Color.Transparent,
+                            1f to backdropBase.copy(alpha = 0.10f)
+                        )
+                    }
+                )
+        )
+    }
+}
+
+/**
+ * The centered avatar with two slowly counter-rotating glass rings around
+ * it - the "orbit" the style is named for. Each ring has a small brighter
+ * arc segment (simulated with an uneven alpha sweep via two stacked
+ * semicircle-ish boxes) so the rotation is actually visible rather than a
+ * uniformly-lit ring spinning invisibly in place.
+ */
+@Composable
+private fun OrbitAvatar(photoUri: String?, callerName: String, palette: DialerPalette) {
+    val transition = rememberInfiniteTransition(label = "orbit-rings")
+    val outerRotation by transition.animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(14000, easing = LinearEasing)),
+        label = "orbit-outer-rotation"
+    )
+    val innerRotation by transition.animateFloat(
+        initialValue = 360f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing)),
+        label = "orbit-inner-rotation"
+    )
+    val breathe by transition.animateFloat(
+        initialValue = 1f, targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "orbit-breathe"
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        // Outer ring - thin, slowly rotating clockwise.
+        Box(
+            modifier = Modifier
+                .size(216.dp)
+                .rotate(outerRotation)
+                .clip(CircleShape)
+                .border(1.5.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(216.dp)
+                .rotate(outerRotation)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .size(46.dp, 3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.55f))
+            )
+        }
+        // Inner ring - slightly thicker, rotating the other direction.
+        Box(
+            modifier = Modifier
+                .size(178.dp)
+                .rotate(innerRotation)
+                .clip(CircleShape)
+                .border(2.dp, Color.White.copy(alpha = 0.12f), CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .size(178.dp)
+                .rotate(innerRotation)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .size(3.dp, 34.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.5f))
+            )
+        }
+        // Large glass avatar disc, breathing gently.
+        Box(
+            modifier = Modifier
+                .graphicsLayer { scaleX = breathe; scaleY = breathe }
+                .size(146.dp)
+                .glassCircle(palette, tintAlpha = 0.30f),
+            contentAlignment = Alignment.Center
+        ) {
+            Avatar(name = callerName, photoUri = photoUri, size = 118.dp)
+        }
+    }
+}
+
+/**
+ * Orbit's accept/decline: two wide glass arcs pinned to the bottom-left and
+ * bottom-right, each draggable *horizontally toward center* to trigger -
+ * a deliberately different gesture from Aurora's vertical swipe-up, so the
+ * two styles feel distinct to use, not just to look at. Tapping still works
+ * as the fast path.
+ */
+@Composable
+private fun OrbitActionArc(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accent: Color,
+    alignEnd: Boolean,
+    onTrigger: () -> Unit
+) {
+    var dragPx by remember { mutableStateOf(0f) }
+    val threshold = with(androidx.compose.ui.platform.LocalDensity.current) { 46.dp.toPx() }
+    val offset by animateFloatAsState(
+        targetValue = dragPx,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 400f),
+        label = "orbit-arc-offset"
+    )
+    val progress = (dragPx / threshold).coerceIn(0f, 1f)
+    val direction = if (alignEnd) -1f else 1f
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .graphicsLayer {
+                translationX = offset * direction
+                scaleX = 1f + progress * 0.05f
+                scaleY = 1f + progress * 0.05f
+            }
+            .pointerInput(alignEnd) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (dragPx >= threshold) onTrigger()
+                        dragPx = 0f
+                    },
+                    onDragCancel = { dragPx = 0f },
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        val towardCenter = if (alignEnd) -amount else amount
+                        dragPx = (dragPx + towardCenter).coerceIn(0f, threshold * 1.3f)
+                    }
+                )
+            }
+            .clickable(onClick = onTrigger)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(74.dp)
+                .liquidGlass(
+                    palette = LocalDialerPalette.current,
+                    shape = CircleShape,
+                    tintAlpha = 0.28f
+                )
+                .background(accent.copy(alpha = 0.30f + progress * 0.35f), CircleShape)
+                .border(1.5.dp, accent.copy(alpha = 0.65f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(28.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(label, fontSize = 12.5.sp, color = Color.White.copy(alpha = 0.88f), fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun OrbitIncomingCallScreen(
+    callerName: String,
+    callerNumber: String,
+    spamAssessment: SpamAssessment? = null,
+    callerPhotoUri: String? = null,
+    isSavedContact: Boolean = false,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onQuickMessage: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalDialerPalette.current
+    val hue = accentHueDegrees(palette.accent).toInt()
+    val backdropBase = incomingCallBackdropColor(palette)
+    val secondaryText = Color.White.copy(alpha = 0.70f)
+
+    val identityEntrance by rememberEntranceProgress(0)
+    val avatarEntrance by rememberEntranceProgress(100)
+    val actionsEntrance by rememberEntranceProgress(190)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.background)
+    ) {
+        OrbitMeshBackdrop(hue = hue, backdropBase = backdropBase, isDark = palette.isDark)
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                Modifier
+                    .graphicsLayerAlphaRise(identityEntrance)
+                    .glassCard(palette, corner = 18.dp, tintAlpha = 0.24f)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    text = "INCOMING CALL",
+                    fontSize = 10.5.sp,
+                    letterSpacing = 1.4.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = secondaryText
+                )
+            }
+
+            Spacer(Modifier.weight(0.55f))
+
+            Column(
+                modifier = Modifier.graphicsLayerAlphaRise(avatarEntrance),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                OrbitAvatar(photoUri = callerPhotoUri, callerName = callerName, palette = palette)
+                Spacer(Modifier.height(26.dp))
+                Text(
+                    text = callerName.ifBlank { "Unknown caller" },
+                    fontSize = 30.sp,
+                    lineHeight = 36.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+                if (callerNumber.isNotBlank() && callerNumber != callerName) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(callerNumber, fontSize = 14.sp, color = secondaryText)
+                }
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    text = if (isSavedContact) "Saved contact" else "New caller",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = secondaryText.copy(alpha = 0.85f)
+                )
+                if (spamAssessment?.isLikelySpam == true) {
+                    Spacer(Modifier.height(12.dp))
+                    SpamBadge()
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayerAlphaRise(actionsEntrance)
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                OrbitActionArc(
+                    icon = Icons.Filled.CallEnd,
+                    label = "Decline",
+                    accent = palette.danger,
+                    alignEnd = false,
+                    onTrigger = onDecline
+                )
+                OrbitActionArc(
+                    icon = Icons.Filled.Phone,
+                    label = "Answer",
+                    accent = palette.callGreen,
+                    alignEnd = true,
+                    onTrigger = onAccept
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Tap or drag inward to respond",
+                fontSize = 11.5.sp,
+                color = secondaryText,
+                modifier = Modifier.graphicsLayerAlphaRise(actionsEntrance)
+            )
+            Spacer(Modifier.height(12.dp))
+            QuickActionsPill(
+                onQuickMessage = onQuickMessage,
+                modifier = Modifier.graphicsLayerAlphaRise(actionsEntrance)
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
+// ============================================================================
+// STYLE: "Pulse" - the most kinetic/energetic style. Concentric glass rings
+// radiate continuously outward from the avatar like sonar, a slowly
+// drifting two-tone mesh gradient backdrop keeps the whole screen feeling
+// alive, and accept/decline are glass pill buttons that ripple outward on
+// press. Full-width vertical stack (avatar higher up, name below it, pills
+// stacked full-width at the bottom) so it also reads visually distinct from
+// both Aurora's and Orbit's centered-column layouts, not just animation-wise.
+// ============================================================================
+
+/**
+ * Pulse's backdrop: two softly-colored wide bands (rather than Aurora's 5
+ * blobs or Orbit's 1 still core) that slowly drift past each other
+ * diagonally, giving the whole screen a gentle "always moving" quality that
+ * matches the ripples below without being as busy as Aurora's multi-blob
+ * glow.
+ */
+@Composable
+private fun PulseMeshBackdrop(hue: Int, backdropBase: Color, isDark: Boolean) {
+    val transition = rememberInfiniteTransition(label = "pulse-mesh-drift")
+    val bandOffset1 by transition.animateFloat(
+        initialValue = -60f, targetValue = 60f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse-band-1"
+    )
+    val bandOffset2 by transition.animateFloat(
+        initialValue = 50f, targetValue = -50f,
+        animationSpec = infiniteRepeatable(tween(8600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse-band-2"
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(listOf(lightenTowardBlack(backdropBase, 0.07f), backdropBase))
+                )
+        )
+        Box(modifier = Modifier.fillMaxSize().blur(radius = 140.dp)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = bandOffset1.dp, y = (-40).dp)
+                    .size(380.dp)
+                    .background(
+                        Color.hsl(hue.toFloat(), 0.65f, 0.55f).copy(alpha = if (isDark) 0.5f else 0.20f),
+                        CircleShape
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = bandOffset2.dp, y = 30.dp)
+                    .size(420.dp)
+                    .background(
+                        Color.hsl(((hue + 200) % 360).toFloat(), 0.6f, 0.5f).copy(alpha = if (isDark) 0.48f else 0.18f),
+                        CircleShape
+                    )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (isDark) {
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.26f),
+                            0.24f to Color.Transparent,
+                            0.72f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.46f)
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            0f to Color.White.copy(alpha = 0.08f),
+                            0.25f to Color.Transparent,
+                            0.78f to Color.Transparent,
+                            1f to backdropBase.copy(alpha = 0.10f)
+                        )
+                    }
+                )
+        )
+    }
+}
+
+/**
+ * The sonar effect: 3 rings continuously expand outward from the avatar and
+ * fade out, staggered so a new one starts before the previous finishes -
+ * the same "signal going out" motif a incoming-call screen wants, done with
+ * plain glass rings instead of a photo/video effect.
+ */
+@Composable
+private fun PulseRing(delayMs: Int, baseSize: Dp, maxSize: Dp, color: Color) {
+    val transition = rememberInfiniteTransition(label = "pulse-ring-$delayMs")
+    val progress by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(2200, delayMillis = delayMs, easing = FastOutSlowInEasing)
+        ),
+        label = "pulse-ring-progress-$delayMs"
+    )
+    val size = baseSize + (maxSize - baseSize) * progress
+    val alpha = (1f - progress) * 0.55f
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .border(1.5.dp, color.copy(alpha = alpha), CircleShape)
+    )
+}
+
+@Composable
+private fun PulseAvatar(photoUri: String?, callerName: String, palette: DialerPalette) {
+    Box(contentAlignment = Alignment.Center) {
+        PulseRing(delayMs = 0, baseSize = 128.dp, maxSize = 232.dp, color = Color.White)
+        PulseRing(delayMs = 700, baseSize = 128.dp, maxSize = 232.dp, color = Color.White)
+        PulseRing(delayMs = 1400, baseSize = 128.dp, maxSize = 232.dp, color = Color.White)
+        Box(
+            modifier = Modifier
+                .size(128.dp)
+                .glassCircle(palette, tintAlpha = 0.34f),
+            contentAlignment = Alignment.Center
+        ) {
+            Avatar(name = callerName, photoUri = photoUri, size = 100.dp)
+        }
+    }
+}
+
+/**
+ * Full-width glass pill button with its own small ripple-on-press flourish
+ * (a ring that briefly expands from the tap point's general area and fades)
+ * - Pulse's own equivalent of Aurora's swipe-up / Orbit's drag-inward, kept
+ * as a straightforward tap here since a full-width pill has less room for a
+ * drag gesture to feel natural than a compact circle/arc does.
+ */
+@Composable
+private fun PulsePillButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    accent: Color,
+    palette: DialerPalette,
+    onClick: () -> Unit
+) {
+    var pressedTick by remember { mutableStateOf(0) }
+    val rippleProgress by animateFloatAsState(
+        targetValue = pressedTick.toFloat(),
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "pulse-pill-ripple"
+    )
+    val ripplePhase = rippleProgress - rippleProgress.toInt()
+    val rippleAlpha = if (pressedTick > 0) (1f - ripplePhase) * 0.35f else 0f
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .liquidGlass(palette, shape = RoundedCornerShape(32.dp), tintAlpha = 0.30f)
+            .background(accent.copy(alpha = 0.34f), RoundedCornerShape(32.dp))
+            .clickable {
+                pressedTick += 1
+                onClick()
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { scaleX = 1f + ripplePhase * 0.5f; scaleY = 1f + ripplePhase * 0.5f; alpha = rippleAlpha }
+                .background(Color.White.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(label, fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun PulseIncomingCallScreen(
+    callerName: String,
+    callerNumber: String,
+    spamAssessment: SpamAssessment? = null,
+    callerPhotoUri: String? = null,
+    isSavedContact: Boolean = false,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    onQuickMessage: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalDialerPalette.current
+    val callerHue = ((callerName.firstOrNull()?.code ?: 65) * 41) % 360
+    val themeHue = accentHueDegrees(palette.accent)
+    val hue = (((themeHue * 0.65f) + (callerHue * 0.35f)).toInt()).let { it.mod(360) }
+    val backdropBase = incomingCallBackdropColor(palette)
+    val secondaryText = Color.White.copy(alpha = 0.72f)
+
+    val identityEntrance by rememberEntranceProgress(0)
+    val avatarEntrance by rememberEntranceProgress(80)
+    val actionsEntrance by rememberEntranceProgress(160)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(palette.background)
+    ) {
+        PulseMeshBackdrop(hue = hue, backdropBase = backdropBase, isDark = palette.isDark)
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                .navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                Modifier
+                    .graphicsLayerAlphaRise(identityEntrance)
+                    .glassCard(palette, corner = 18.dp, tintAlpha = 0.24f)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    text = "INCOMING CALL",
+                    fontSize = 10.5.sp,
+                    letterSpacing = 1.4.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = secondaryText
+                )
+            }
+
+            Spacer(Modifier.height(30.dp))
+
+            Box(
+                modifier = Modifier.graphicsLayerAlphaRise(avatarEntrance),
+                contentAlignment = Alignment.Center
+            ) {
+                PulseAvatar(photoUri = callerPhotoUri, callerName = callerName, palette = palette)
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            Column(
+                modifier = Modifier.graphicsLayerAlphaRise(identityEntrance),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = callerName.ifBlank { "Unknown caller" },
+                    fontSize = 30.sp,
+                    lineHeight = 36.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+                if (callerNumber.isNotBlank() && callerNumber != callerName) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(callerNumber, fontSize = 14.sp, color = secondaryText)
+                }
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    text = if (isSavedContact) "Saved contact" else "New caller",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = secondaryText.copy(alpha = 0.85f)
+                )
+                if (spamAssessment?.isLikelySpam == true) {
+                    Spacer(Modifier.height(12.dp))
+                    SpamBadge()
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayerAlphaRise(actionsEntrance),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                PulsePillButton(
+                    icon = Icons.Filled.Phone,
+                    label = "Answer",
+                    accent = palette.callGreen,
+                    palette = palette,
+                    onClick = onAccept
+                )
+                PulsePillButton(
+                    icon = Icons.Filled.CallEnd,
+                    label = "Decline",
+                    accent = palette.danger,
+                    palette = palette,
+                    onClick = onDecline
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            QuickActionsPill(
+                onQuickMessage = onQuickMessage,
+                modifier = Modifier.graphicsLayerAlphaRise(actionsEntrance)
+            )
+            Spacer(Modifier.height(6.dp))
+        }
     }
 }

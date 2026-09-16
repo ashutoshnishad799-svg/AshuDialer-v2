@@ -745,6 +745,7 @@ class InCallActivity : ComponentActivity() {
                                 callerPhotoUri = localContactMatch?.photoUri,
                                 isSavedContact = isSavedContact,
                                 spamAssessment = spamAssessment,
+                                style = settings.incomingCallStyle,
                                 onAccept = {
                                     current.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)

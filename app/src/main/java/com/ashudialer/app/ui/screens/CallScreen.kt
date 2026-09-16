@@ -131,6 +131,13 @@ fun CallScreen(
     // counter - after a hardcoded 1.8s regardless of whether the other
     // person had actually answered yet, so "Dialing"/ringing time was
     // counted as if the call were already connected.
+    //
+    // secondaryCallState (call-waiting/second-line updates) and even
+    // isConnected/isOnHold themselves can emit repeatedly from Telecom
+    // during a perfectly normal active call without the *value* actually
+    // changing. This effect still needs to re-run on every emission so it
+    // never misses a real transition, so it intentionally keys on the raw
+    // upstream signals rather than on `state`.
     LaunchedEffect(isConnected, isOnHold, secondaryCallState) {
         state = when {
             isOnHold -> CallUiState.ON_HOLD
@@ -139,8 +146,20 @@ fun CallScreen(
         }
     }
 
-    LaunchedEffect(state, isOnHold) {
-        while (state == CallUiState.ACTIVE && !isOnHold) {
+    // Bug fix: this used to key on (state, isOnHold). Because the effect
+    // above can reassign `state = ACTIVE` again on every upstream update
+    // even when the call was already ACTIVE (same value, new assignment),
+    // keying the ticker on `state` restarted this loop on every one of
+    // those no-op updates - each restart re-suspends on a fresh delay(1000)
+    // before the first tick, so on a noisy connection the seconds counter
+    // (and anything reading `isCallActive`) could stall/flicker repeatedly
+    // during an otherwise normal active call. Deriving a plain Boolean and
+    // keying on that instead means the effect only restarts when the call
+    // actually transitions in or out of "ticking" - not on every repeat
+    // emission of the same state.
+    val isCallActive = state == CallUiState.ACTIVE && !isOnHold
+    LaunchedEffect(isCallActive) {
+        while (isCallActive) {
             delay(1000)
             seconds++
         }

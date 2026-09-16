@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,6 +38,7 @@ fun SettingsScreen(
     settings: AppSettings,
     onBack: () -> Unit,
     onOpenAppearance: () -> Unit,
+    onOpenIncomingCallStyle: () -> Unit,
     onToggleCallRecording: (Boolean) -> Unit,
     onToggleAutoRecordAll: (Boolean) -> Unit,
     onToggleLedFlash: (Boolean) -> Unit,
@@ -114,6 +116,14 @@ fun SettingsScreen(
                 SectionLabel("Appearance", palette)
                 SettingsCard(palette) {
                     NavRow(icon = Icons.Filled.Palette, title = "Theme", subtitle = "Choose a color palette", palette = palette, onClick = onOpenAppearance)
+                    HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+                    NavRow(
+                        icon = Icons.Filled.Phone,
+                        title = "Incoming call screen",
+                        subtitle = incomingCallStyleDisplayName(settings.incomingCallStyle),
+                        palette = palette,
+                        onClick = onOpenIncomingCallStyle
+                    )
                 }
             }
 

@@ -627,6 +627,10 @@ class MainViewModel(
         viewModelScope.launch { appSettingsRepository.setFontSizeIndex(index) }
     }
 
+    fun setIncomingCallStyle(style: String) {
+        viewModelScope.launch { appSettingsRepository.setIncomingCallStyle(style) }
+    }
+
 
     suspend fun exportCallHistoryCsv(): String = systemCallLogRepository.exportToCsv()
 

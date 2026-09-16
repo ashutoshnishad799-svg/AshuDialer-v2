@@ -67,7 +67,7 @@ import com.ashudialer.app.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK }
+private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, INCOMING_CALL_STYLE }
 
 // THE FIX for the Modules/Root-setup screen "freezing" after tapping
 // "Open Magisk" and coming back: overlay used to be plain `remember`,
@@ -1332,6 +1332,7 @@ class MainActivity : ComponentActivity() {
                                             settings = settings,
                                             onBack = { overlay = OverlayScreen.NONE },
                                             onOpenAppearance = { showThemePicker = true },
+                                            onOpenIncomingCallStyle = { overlay = OverlayScreen.INCOMING_CALL_STYLE },
                                             onToggleCallRecording = { enabled ->
                                                 if (enabled) {
                                                     // Route through the guide first instead of
@@ -1600,6 +1601,12 @@ class MainActivity : ComponentActivity() {
                                             },
                                             statusMessage = localBackupStatusFlow,
                                             isBusy = localBackupBusyFlow,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        OverlayScreen.INCOMING_CALL_STYLE -> IncomingCallStylePickerScreen(
+                                            currentStyleId = settings.incomingCallStyle,
+                                            onSelect = { styleId -> viewModel.setIncomingCallStyle(styleId) },
+                                            onBack = { overlay = OverlayScreen.NONE },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.NONE -> {}

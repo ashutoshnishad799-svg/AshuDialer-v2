@@ -49,7 +49,17 @@ data class AppSettings(
 
     val showSearchBar: Boolean = true,
 
-    val fontSizeIndex: Int = 1
+    val fontSizeIndex: Int = 1,
+
+    // Which visual style the full-screen incoming-call UI uses. "aurora" is
+    // the existing default (soft multi-hue glow behind frosted glass, per-
+    // theme backdrop) - kept as the default so nobody's incoming-call screen
+    // changes just from updating the app. "orbit" and "pulse" are two
+    // additional liquid-glass styles with a different mood/animation
+    // character each; see IncomingCallScreen.kt for what each one looks
+    // like. Stored as a string (not an enum) for the same DataStore-
+    // friendliness reason fontSizeIndex is an Int rather than a sealed type.
+    val incomingCallStyle: String = "aurora"
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -73,6 +83,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyRelativeDate = booleanPreferencesKey("use_relative_date")
     private val keyShowSearchBar = booleanPreferencesKey("show_search_bar")
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
+    private val keyIncomingCallStyle = stringPreferencesKey("incoming_call_style")
 
     val settingsFlow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
@@ -95,6 +106,7 @@ class AppSettingsRepository(private val context: Context) {
             useRelativeDate = prefs[keyRelativeDate] ?: true,
             showSearchBar = prefs[keyShowSearchBar] ?: true,
             fontSizeIndex = prefs[keyFontSizeIndex] ?: 1,
+            incomingCallStyle = prefs[keyIncomingCallStyle] ?: "aurora",
         )
     }
 
@@ -172,5 +184,9 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setFontSizeIndex(index: Int) {
         context.settingsDataStore.edit { it[keyFontSizeIndex] = index }
+    }
+
+    suspend fun setIncomingCallStyle(style: String) {
+        context.settingsDataStore.edit { it[keyIncomingCallStyle] = style }
     }
 }

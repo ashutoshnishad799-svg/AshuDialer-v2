@@ -351,87 +351,44 @@ private fun PersonalizePage(
     currentThemeId: String,
     onThemeSelected: (String) -> Unit
 ) {
-    val themeCount = AllPalettes.size
-    val selectedPalette = AllPalettes.firstOrNull { it.id == currentThemeId }
-
     Column(
         Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(22.dp))
         Text(
             "Make it yours",
             color = palette.textPrimary,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             letterSpacing = (-0.3).sp
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
-            "Choose from the themes already built into Ashu Dialer",
+            "Pick a look — you can change it anytime",
             color = palette.textSecondary,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 18.dp)
+            fontSize = 13.5.sp,
+            textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(16.dp))
-
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .glassCard(palette, corner = 22.dp, tintAlpha = 0.42f)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(
-                        selectedPalette?.let { Brush.linearGradient(listOf(it.swatchStart, it.swatchEnd)) }
-                            ?: Brush.linearGradient(listOf(palette.accent, palette.accent.copy(alpha = .45f)))
-                    )
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = selectedPalette?.displayName ?: "System",
-                    color = palette.textPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "$themeCount built-in themes + System • tap any card to preview instantly",
-                    color = palette.textSecondary,
-                    fontSize = 11.5.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(22.dp))
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(3),
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(26.dp))
-                .background(palette.cardBackground.copy(alpha = 0.22f))
-                .padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 8.dp)
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
         ) {
             item(key = "system") {
-                val active = currentThemeId == com.ashudialer.app.ui.theme.AUTO_THEME_ID
                 OnboardingThemeCard(
                     name = "System",
-                    subtitle = "Follows phone",
-                    start = palette.textSecondary.copy(alpha = .35f),
-                    end = palette.textPrimary.copy(alpha = .72f),
+                    start = palette.textSecondary.copy(alpha = .32f),
+                    end = palette.textPrimary.copy(alpha = .68f),
                     accent = palette.accent,
-                    selected = active,
+                    selected = currentThemeId == com.ashudialer.app.ui.theme.AUTO_THEME_ID,
                     onClick = { onThemeSelected(com.ashudialer.app.ui.theme.AUTO_THEME_ID) }
                 )
             }
@@ -439,18 +396,6 @@ private fun PersonalizePage(
             items(AllPalettes, key = { it.id }) { swatch ->
                 OnboardingThemeCard(
                     name = swatch.displayName,
-                    subtitle = when (swatch.id) {
-                        "gradient" -> "Soft gradient"
-                        "midnight" -> "AMOLED dark"
-                        "ocean" -> "Cool blue"
-                        "sunset" -> "Warm glow"
-                        "violet" -> "Deep violet"
-                        "rosegold" -> "Warm metallic"
-                        "darkmode" -> "Pure dark"
-                        "white" -> "Clean light"
-                        "rainbow" -> "Full spectrum"
-                        else -> "Ashu Dialer theme"
-                    },
                     start = swatch.swatchStart,
                     end = swatch.swatchEnd,
                     accent = swatch.accent,
@@ -462,10 +407,15 @@ private fun PersonalizePage(
     }
 }
 
+/**
+ * Minimal theme swatch for onboarding: a soft rounded gradient circle,
+ * a small check badge when selected, and a single-line label underneath.
+ * No mock phone chrome, no subtitle line, no boxed grid background —
+ * kept deliberately quiet so the colors themselves do the talking.
+ */
 @Composable
 private fun OnboardingThemeCard(
     name: String,
-    subtitle: String,
     start: Color,
     end: Color,
     accent: Color,
@@ -475,82 +425,49 @@ private fun OnboardingThemeCard(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = when {
-            pressed -> 0.975f
-            selected -> 1.01f
-            else -> 1f
-        },
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 380f),
         label = "theme-card-scale"
+    )
+    val ringAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
+        label = "theme-card-ring"
     )
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (selected) accent.copy(alpha = .12f) else Color.Transparent)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) accent.copy(alpha = .75f) else accent.copy(alpha = .16f),
-                shape = RoundedCornerShape(20.dp)
-            )
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
-            .padding(10.dp)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(84.dp)
-                .clip(RoundedCornerShape(15.dp))
-                .background(Brush.linearGradient(listOf(start, end))),
-            contentAlignment = Alignment.BottomStart
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .size(58.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(start, end)))
+                .border(
+                    width = 2.dp,
+                    color = accent.copy(alpha = ringAlpha),
+                    shape = CircleShape
+                )
+                .padding(3.dp)
+                .then(
+                    if (selected) Modifier.border(1.5.dp, Color.White.copy(alpha = .55f), CircleShape)
+                    else Modifier
+                ),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                Modifier
-                    .padding(8.dp)
-                    .width(52.dp)
-                    .height(66.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color.Black.copy(alpha = .17f))
-                    .border(1.dp, Color.White.copy(alpha = .24f), RoundedCornerShape(10.dp))
-            ) {
-                Box(
-                    Modifier
-                        .padding(6.dp)
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = .72f))
-                )
-                Box(
-                    Modifier
-                        .align(Alignment.Center)
-                        .size(19.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = .85f))
-                )
-                Row(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFFFF5A57)))
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF34C759)))
-                }
-            }
-
             if (selected) {
                 Box(
                     Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(24.dp)
+                        .size(20.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = .92f)),
                     contentAlignment = Alignment.Center
@@ -559,25 +476,20 @@ private fun OnboardingThemeCard(
                         androidx.compose.material.icons.Icons.Filled.Check,
                         contentDescription = "Selected",
                         tint = accent,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(13.dp)
                     )
                 }
             }
         }
 
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             name,
-            color = LocalDialerPalette.current.textPrimary,
-            fontSize = 13.5.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-            maxLines = 1
-        )
-        Text(
-            subtitle,
-            color = LocalDialerPalette.current.textSecondary,
-            fontSize = 10.5.sp,
-            maxLines = 1
+            color = if (selected) LocalDialerPalette.current.textPrimary else LocalDialerPalette.current.textSecondary,
+            fontSize = 11.5.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            textAlign = TextAlign.Center
         )
     }
 }

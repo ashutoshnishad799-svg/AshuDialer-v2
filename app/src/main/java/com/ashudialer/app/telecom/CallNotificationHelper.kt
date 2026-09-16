@@ -238,8 +238,25 @@ object CallNotificationHelper {
             val views = buildGlassLayout(context, callerName, statusText = "Ongoing call", incoming = false)
             val compactViews = buildCompactOngoingLayout(context, callerName)
 
+            // Bug fix: this was missing FLAG_ACTIVITY_SINGLE_TOP and
+            // FLAG_ACTIVITY_NO_USER_ACTION, unlike the matching intent for
+            // the *incoming*-call notification above (which already has
+            // both). Without SINGLE_TOP, tapping this ongoing-call
+            // notification while InCallActivity (singleTask, already
+            // showWhenLocked/turnScreenOn per the manifest) is technically
+            // still alive but not literally foreground can make the system
+            // re-resolve the launch instead of just resuming the existing
+            // task - and on that fresh-resolve path some OEM keyguards
+            // (this notification variant already special-cases Xiaomi/
+            // Redmi/POCO just above) re-consult the lock screen before the
+            // activity's own window flags get a chance to apply, which is
+            // what produced "tapping the call notification asks to unlock"
+            // even though the call itself should never require that.
             val contentIntent = Intent(context, InCallActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_NO_USER_ACTION
             }
             val pendingIntent = PendingIntent.getActivity(
                 context, 1, contentIntent,
