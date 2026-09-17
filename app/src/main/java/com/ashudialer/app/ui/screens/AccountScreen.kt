@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -365,10 +364,6 @@ private fun SignedInContent(
 
     Spacer(Modifier.height(24.dp))
 
-    VideoCallingSection(myPhoneNumber = myPhoneNumber, onSave = onSaveMyPhoneNumber)
-
-    Spacer(Modifier.height(24.dp))
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -414,75 +409,3 @@ private fun formatBackupTime(millis: Long): String {
     return sdf.format(Date(millis))
 }
 
-@Composable
-private fun VideoCallingSection(myPhoneNumber: String, onSave: (String) -> Unit) {
-    val palette = LocalDialerPalette.current
-    var editing by remember(myPhoneNumber) { mutableStateOf(myPhoneNumber.isBlank()) }
-    var draft by remember(myPhoneNumber) { mutableStateOf(myPhoneNumber) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassCard(palette, 18.dp)
-            .padding(16.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Videocam, contentDescription = null, tint = palette.accent)
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Video Calling", fontWeight = FontWeight.SemiBold, color = palette.textPrimary, fontSize = 15.sp)
-                Text(
-                    "Other AshuPhone users can reach you by video call once you confirm your number below.",
-                    fontSize = 12.sp, color = palette.textSecondary, lineHeight = 16.sp
-                )
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        if (editing) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(palette.searchBackground)
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-            ) {
-                if (draft.isEmpty()) {
-                    Text("Your phone number", color = palette.textSecondary, fontSize = 14.sp)
-                }
-                BasicTextField(
-                    value = draft,
-                    onValueChange = { input -> draft = input.filter { it.isDigit() || it == '+' }.take(15) },
-                    textStyle = TextStyle(color = palette.textPrimary, fontSize = 14.sp),
-                    cursorBrush = SolidColor(palette.accent),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            Button(
-                onClick = { if (draft.isNotBlank()) { onSave(draft); editing = false } },
-                enabled = draft.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
-            ) {
-                Text("Save", fontWeight = FontWeight.SemiBold)
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable { editing = true },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(myPhoneNumber, color = palette.textPrimary, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                Text("Edit", color = palette.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "When you call someone on the same carrier as you, AshuPhone suggests a regular VoLTE call if your plan includes free on-network calling. Otherwise, or across different carriers, video calls connect over the internet.",
-            fontSize = 11.5.sp, color = palette.textSecondary.copy(alpha = 0.85f), lineHeight = 16.sp
-        )
-    }
-}
