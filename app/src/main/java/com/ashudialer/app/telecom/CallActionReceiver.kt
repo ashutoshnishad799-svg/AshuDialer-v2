@@ -61,7 +61,14 @@ class CallActionReceiver : BroadcastReceiver() {
                         // behavior exactly, so this path is never worse than what
                         // shipped before - only the common case above is better.
                         android.util.Log.w("CallActionReceiver", "Answer Activity launch failed, falling back to direct answer()", e)
-                        PixelInCallService.currentCall?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                        // Reuses PixelInCallService's own answer() (not a
+                        // duplicated VideoProfile.STATE_AUDIO_ONLY literal
+                        // here) so this last-resort path gets the same
+                        // "answer as video if the call itself is already a
+                        // video call" fix applied there, instead of a second
+                        // copy of that logic silently drifting out of sync
+                        // with it over time.
+                        PixelInCallService.instance?.answer()
                     }
                 }
                 ACTION_DECLINE -> {

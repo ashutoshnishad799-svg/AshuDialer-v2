@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 
 class AshuDialerApp : Application() {
 
@@ -105,6 +106,43 @@ class AshuDialerApp : Application() {
         createNotificationChannels()
 
         CallNotificationHelper.createChannels(this)
+
+        // Fires the silent anonymous sign-in (see AuthRepository.
+        // ensureSignedIn's doc comment) once per process start, so every
+        // install gets a stable Firebase identity without any manual
+        // Google Sign-In step. watchVideoCallingAvailability below still
+        // separately requires settings.myPhoneNumber to be set before
+        // actually starting the listener service - this call only removes
+        // the "signed in" half of that gate, not the "has entered their
+        // own number" half, since a phone number is still needed to be
+        // reachable by number the way every other call in this app works.
+        applicationScope.launch {
+            authRepository.ensureSignedIn()
+        }
+
+        // Removes the *other* manual step video calling used to require:
+        // previously the person had to open More → Account and type their
+        // own number in by hand before video calling would ever turn on,
+        // even though the OS/carrier already knows this device's number
+        // on most Indian SIMs. If AppSettingsRepository doesn't have a
+        // number saved yet AND the person has already granted
+        // READ_PHONE_NUMBERS (part of the app's normal permission
+        // onboarding - see DialerPermissions), this reads it straight off
+        // the SIM and saves it, the same as if they'd typed it in
+        // themselves. If the permission isn't granted yet, or the
+        // carrier/SIM simply doesn't expose line1Number (see
+        // CarrierDetector.readSimPhoneNumberOrNull's doc comment - a
+        // platform/carrier limitation on some SIMs, not something any app
+        // can work around), this silently does nothing and
+        // AccountScreen's manual entry field remains exactly as it always
+        // was, unaffected.
+        applicationScope.launch {
+            val alreadySaved = appSettingsRepository.settingsFlow.first().myPhoneNumber
+            if (alreadySaved.isBlank()) {
+                com.ashudialer.app.telecom.CarrierDetector.readSimPhoneNumberOrNull(this@AshuDialerApp)
+                    ?.let { autoDetected -> appSettingsRepository.setMyPhoneNumber(autoDetected) }
+            }
+        }
 
         watchVideoCallingAvailability()
     }

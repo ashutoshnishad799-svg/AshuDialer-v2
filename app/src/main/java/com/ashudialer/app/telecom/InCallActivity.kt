@@ -39,6 +39,31 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 
+/**
+ * The correct video state to answer() an incoming call with, shared by
+ * every answer path across this Activity (notification-tap auto-answer,
+ * and the ringing screen's own Accept button - PixelInCallService.answer()
+ * has its own equivalent for the third path, the notification's action
+ * button, since it doesn't share this file's scope).
+ *
+ * See PixelInCallService.answer()'s doc comment for the full reasoning -
+ * in short: this only ever answers as STATE_BIDIRECTIONAL when the
+ * incoming call itself already requested video (a real VoLTE video call),
+ * preserving STATE_AUDIO_ONLY for every ordinary voice call exactly as
+ * before. VideoProfile.isAudioOnly(int) is used rather than a plain ==
+ * comparison against STATE_AUDIO_ONLY (which is 0, so == would miss any
+ * state that also has the paused bit set) per the platform's own
+ * documented guidance for this check.
+ */
+private fun answerVideoStateFor(call: Call): Int {
+    val videoState = call.details?.videoState ?: android.telecom.VideoProfile.STATE_AUDIO_ONLY
+    return if (android.telecom.VideoProfile.isAudioOnly(videoState)) {
+        android.telecom.VideoProfile.STATE_AUDIO_ONLY
+    } else {
+        android.telecom.VideoProfile.STATE_BIDIRECTIONAL
+    }
+}
+
 @Composable
 private fun CallLoadingScreen(title: String, subtitle: String) {
     val palette = com.ashudialer.app.ui.theme.LocalDialerPalette.current
@@ -453,7 +478,7 @@ class InCallActivity : ComponentActivity() {
                 if (pendingAutoAnswer && call != null && callState == Call.STATE_RINGING) {
                     val current = call ?: return@LaunchedEffect
                     consumeAutoAnswer()
-                    current.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                    current.answer(answerVideoStateFor(current))
                     logCallAsync(
                         app,
                         current.details?.handle?.schemeSpecificPart ?: "Unknown",
@@ -747,7 +772,7 @@ class InCallActivity : ComponentActivity() {
                                 spamAssessment = spamAssessment,
                                 style = settings.incomingCallStyle,
                                 onAccept = {
-                                    current.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY)
+                                    current.answer(answerVideoStateFor(current))
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)
                                 },
                                 onDecline = {
@@ -768,6 +793,22 @@ class InCallActivity : ComponentActivity() {
                                 callerPhotoUri = localContactMatch?.photoUri,
                                 isConnected = callState == Call.STATE_ACTIVE,
                                 isOnHold = callState == Call.STATE_HOLDING,
+                                // Telecom's own wall-clock connect timestamp -
+                                // see CallScreen's connectTimeMillis doc
+                                // comment for why this (not a local counter)
+                                // is the fix for the duration resetting when
+                                // this activity gets recreated. Only read
+                                // once actually ACTIVE: Telecom can return 0
+                                // (or a stale value from a previous call on
+                                // the same Call object) before then, and
+                                // CallScreen's own fallback covers the rare
+                                // case where this is still 0 despite
+                                // isConnected being true.
+                                connectTimeMillis = if (callState == Call.STATE_ACTIVE) {
+                                    current.details?.connectTimeMillis ?: 0L
+                                } else {
+                                    0L
+                                },
                                 canMerge = canMergeCalls,
                                 canSwap = canSwapCalls,
                                 secondaryCallerName = secondaryName,
@@ -789,6 +830,67 @@ class InCallActivity : ComponentActivity() {
                                         startActivity(intent)
                                     }
                                 } else null,
+                                // DEEP FIX (native/VoLTE video calling, part
+                                // 2 of 2 - part 1 is the answer()
+                                // STATE_BIDIRECTIONAL fix in
+                                // PixelInCallService/CallActionReceiver/this
+                                // file's own answer paths): offering an
+                                // in-call *upgrade* to video, the same
+                                // feature a stock carrier dialer's in-call
+                                // video button provides. Only offered when
+                                // Telecom itself already reports both
+                                // directions are actually supported for
+                                // THIS specific call - CAPABILITY_SUPPORTS_VT_LOCAL_BIDIRECTIONAL
+                                // (this device/carrier connection can send
+                                // and receive video) AND
+                                // CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL
+                                // (the other party's device/network can
+                                // too) - both bits come from the live
+                                // Call.Details.callCapabilities the carrier's
+                                // own ConnectionService reports, not
+                                // something this app can turn on for a call
+                                // that doesn't genuinely support it. A call
+                                // over a non-VoLTE/2G-3G-only connection, or
+                                // to a phone/carrier that doesn't support
+                                // video, correctly never shows this option -
+                                // there's no bypass, since the underlying
+                                // network capability itself has to exist.
+                                //
+                                // Call.videoCall (the InCallService.VideoCall
+                                // handle for this call) is what's actually
+                                // used to send the upgrade request -
+                                // sendSessionModifyRequest(VideoProfile) asks
+                                // Telecom/the carrier to renegotiate this
+                                // same call as bidirectional video. Once the
+                                // carrier confirms (Call.Callback.
+                                // onVideoCallChanged / a videoState change on
+                                // this same Call), rendering the two live
+                                // video surfaces via that VideoProvider is a
+                                // separate, larger UI surface of its own -
+                                // not yet built here. This wiring's scope is
+                                // specifically the capability check and
+                                // issuing the correct request so it's never
+                                // offered/sent for a call that can't
+                                // actually support it; the call keeps
+                                // running as a normal (audio) call in this
+                                // app's own UI after the request is sent,
+                                // rather than this button silently doing
+                                // nothing or claiming to show video it
+                                // doesn't yet render.
+                                onUpgradeToNativeVideo = run {
+                                    val caps = current.details?.callCapabilities ?: 0
+                                    val localOk = (caps and Call.Details.CAPABILITY_SUPPORTS_VT_LOCAL_BIDIRECTIONAL) != 0
+                                    val remoteOk = (caps and Call.Details.CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL) != 0
+                                    if (localOk && remoteOk && current.videoCall != null) {
+                                        {
+                                            runCatching {
+                                                current.videoCall?.sendSessionModifyRequest(
+                                                    android.telecom.VideoProfile(android.telecom.VideoProfile.STATE_BIDIRECTIONAL)
+                                                )
+                                            }
+                                        }
+                                    } else null
+                                },
                                 isMuted = isMuted,
                                 onToggleMute = {
                                     // Request through Telecom (same pattern as

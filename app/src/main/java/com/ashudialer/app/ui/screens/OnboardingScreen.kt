@@ -434,7 +434,6 @@ private fun OnboardingThemeCard(
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
         label = "theme-card-ring"
     )
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -454,7 +453,22 @@ private fun OnboardingThemeCard(
                 .background(Brush.linearGradient(listOf(start, end)))
                 .border(
                     width = 2.dp,
-                    color = accent.copy(alpha = ringAlpha),
+                    // THE FIX for the onboarding-theme-selection crash
+                    // (IllegalArgumentException: alpha = 1.0021328...
+                    // outside the range for sRGB): ringAlpha is a
+                    // spring()-based animateFloatAsState animating between
+                    // 0f and 1f. A spring with dampingRatio < 1
+                    // (underdamped - 0.8f here) physically overshoots its
+                    // target before settling, so on the way to 1f this
+                    // value can briefly read slightly ABOVE 1f (observed:
+                    // 1.0021328). Color.copy(alpha = ...) validates its
+                    // input is within [0f, 1f] and throws otherwise -
+                    // every tap that selected a theme card had a real
+                    // chance of hitting exactly that overshot frame and
+                    // crashing the whole onboarding flow. coerceIn clamps
+                    // the overshoot to a valid alpha without changing how
+                    // the spring itself looks or feels.
+                    color = accent.copy(alpha = ringAlpha.coerceIn(0f, 1f)),
                     shape = CircleShape
                 )
                 .padding(3.dp)

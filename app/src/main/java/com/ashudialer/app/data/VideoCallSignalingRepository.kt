@@ -27,6 +27,19 @@ data class SignalingSession(
     // instead. Nullable/blank-tolerant since older in-flight sessions
     // written before this field existed won't have it.
     val callerNumber: String? = null,
+    // The callee's own carrier, submitted alongside their answer (see
+    // submitAnswer below) - callerCarrierId above was already being
+    // written by the caller side on createCall, but nothing ever read it
+    // because there was no matching value from the *other* side to
+    // compare it against. With both sides' carrier ids present on the
+    // same session document, whichever side is displaying the call
+    // (VideoCallActivity) can compare callerCarrierId vs calleeCarrierId
+    // itself and show "same carrier" / "different carriers" accordingly -
+    // see VideoCallActivity's carrierRelationHint for that comparison.
+    // Nullable for the same reason callerNumber is: older sessions and
+    // the brief window before the callee's answer has actually landed
+    // won't have this yet.
+    val calleeCarrierId: String? = null,
     val offerSdp: String? = null,
     val answerSdp: String? = null,
     val status: String = STATUS_RINGING
@@ -112,10 +125,16 @@ class VideoCallSignalingRepository {
         }
     }
 
-    suspend fun submitAnswer(callId: String, answerSdp: String): Boolean {
+    suspend fun submitAnswer(callId: String, answerSdp: String, calleeCarrierId: String?): Boolean {
         val doc = callDoc(callId) ?: return false
         return try {
-            doc.update(mapOf("answerSdp" to answerSdp, "status" to SignalingSession.STATUS_ACCEPTED)).await()
+            doc.update(
+                mapOf(
+                    "answerSdp" to answerSdp,
+                    "calleeCarrierId" to calleeCarrierId,
+                    "status" to SignalingSession.STATUS_ACCEPTED
+                )
+            ).await()
             true
         } catch (e: Exception) {
             android.util.Log.w("VideoCallSignaling", "submitAnswer failed", e)
@@ -171,6 +190,7 @@ class VideoCallSignalingRepository {
                     calleeNumber = snapshot.getString("calleeNumber") ?: "",
                     callerCarrierId = snapshot.getString("callerCarrierId"),
                     callerNumber = snapshot.getString("callerNumber"),
+                    calleeCarrierId = snapshot.getString("calleeCarrierId"),
                     offerSdp = snapshot.getString("offerSdp"),
                     answerSdp = snapshot.getString("answerSdp"),
                     status = snapshot.getString("status") ?: SignalingSession.STATUS_RINGING

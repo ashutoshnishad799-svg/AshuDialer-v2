@@ -11,6 +11,7 @@ import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,7 +53,23 @@ class VideoCallActivity : ComponentActivity() {
                 putExtra(EXTRA_ROLE, ROLE_CALLEE)
                 putExtra(EXTRA_CALL_ID, callId)
                 putExtra(EXTRA_CALLEE_NAME, callerName)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                // Matches the same fix applied to every InCallActivity
+                // launch site (see CallNotificationHelper/MainActivity) -
+                // this Activity is also launched from a full-screen
+                // notification PendingIntent (VideoCallListenerService.
+                // showIncomingVideoCallNotification) that can fire while
+                // the screen is off/locked, so it needs the same two
+                // flags for the same reason: SINGLE_TOP so a re-tap
+                // resumes this task instead of triggering a fresh
+                // re-resolve that can re-consult an OEM keyguard, and
+                // NO_USER_ACTION so the launch itself isn't treated as a
+                // "fresh deliberate app open" that should be gated by
+                // unlock - an incoming video call should never require
+                // unlocking the phone, exactly like a regular incoming
+                // call.
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_NO_USER_ACTION
             }
     }
 
@@ -73,19 +90,18 @@ class VideoCallActivity : ComponentActivity() {
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
 
-        // Pressing back used to finish() this activity outright, which tore
-        // the WebRTC session down with it (see WebRtcCallManager.release()
-        // in the DisposableEffect below). Entering picture-in-picture
-        // instead shrinks the call into a small floating window that keeps
-        // running - the same gesture WhatsApp/Meet use. Falls through to
-        // the normal back behaviour only if PiP genuinely can't be entered
-        // (declined by the OEM build).
-        onBackPressedDispatcher.addCallback(this) {
-            if (!enterPipIfPossible()) {
-                isEnabled = false
-                onBackPressedDispatcher.onBackPressed()
-            }
-        }
+        // Pressing back on an active call enters picture-in-picture instead
+        // of finishing the Activity outright - the same gesture WhatsApp/
+        // Meet use, so a call keeps running in a small floating window
+        // rather than being torn down (see WebRtcCallManager.release() in
+        // the DisposableEffect below for what finish() would otherwise
+        // trigger). This now lives inside setContent as a Compose
+        // BackHandler (below, keyed on phase) rather than here, since
+        // RINGING_INCOMING needs different back behavior - PiP-ing an
+        // unanswered incoming call, with no video to show yet, would be
+        // wrong the way no stock dialer ever shrinks a still-ringing
+        // incoming call into a floating window - and phase is Compose
+        // state that isn't reachable from this plain onCreate scope.
 
         val app = application as AshuDialerApp
         val role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_CALLER
@@ -100,7 +116,20 @@ class VideoCallActivity : ComponentActivity() {
             val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
             val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = com.ashudialer.app.data.AppSettings())
 
-            var phase by remember { mutableStateOf(VideoCallPhase.CONNECTING) }
+            // DEEP FIX for "an incoming video call request should show an
+            // accept screen, not connect on its own": ROLE_CALLEE now
+            // starts in RINGING_INCOMING and stays there - camera never
+            // requested, WebRtcCallManager never created, no offer ever
+            // read from the signaling session - until hasAcceptedIncoming
+            // becomes true, which only ever happens from the actual Accept
+            // tap on IncomingVideoCallDecision (see onAcceptIncoming
+            // below). ROLE_CALLER has nothing to accept (they're the one
+            // who placed the call), so it keeps starting at CONNECTING
+            // exactly as before.
+            var hasAcceptedIncoming by remember { mutableStateOf(role != ROLE_CALLEE) }
+            var phase by remember {
+                mutableStateOf(if (role == ROLE_CALLEE) VideoCallPhase.RINGING_INCOMING else VideoCallPhase.CONNECTING)
+            }
             var remoteVideoTrack by remember { mutableStateOf<org.webrtc.VideoTrack?>(null) }
             var remoteAudioTrack by remember { mutableStateOf<org.webrtc.AudioTrack?>(null) }
             var isMicEnabled by remember { mutableStateOf(true) }
@@ -133,8 +162,16 @@ class VideoCallActivity : ComponentActivity() {
             val hasCameraPermission = cameraPermissionResult.value
                 ?: (ContextCompat.checkSelfPermission(this@VideoCallActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
 
-            LaunchedEffect(Unit) {
-                if (!hasCameraPermission) {
+            // Only ever requests camera access once there's actually
+            // something to use it for - either this is the caller (who is
+            // placing the call right now, so camera is needed immediately)
+            // or the callee has explicitly tapped Accept
+            // (hasAcceptedIncoming). Declining, or simply leaving an
+            // incoming call ringing without answering, never triggers a
+            // camera permission prompt at all - exactly like never
+            // triggers a WebRtcCallManager below either.
+            LaunchedEffect(hasAcceptedIncoming) {
+                if (hasAcceptedIncoming && !hasCameraPermission) {
                     requestCameraPermission.launch(Manifest.permission.CAMERA)
                 }
             }
@@ -146,17 +183,69 @@ class VideoCallActivity : ComponentActivity() {
                 }
             }
 
-            val sameCarrierHint by produceState<String?>(initialValue = null) {
-                val myCarrier = CarrierDetector.currentCarrierId(this@VideoCallActivity)
-                value = if (myCarrier != null) {
-                    "On ${CarrierDetector.currentCarrierDisplayName(this@VideoCallActivity) ?: "your carrier"} — connecting over the internet"
-                } else null
+            // DEEP IMPLEMENTATION of same-carrier vs different-carrier
+            // video calling, as requested: "agar same sim like jio to jio
+            // hoga to call connect ho jaye agar different hoga to warning
+            // aa jaye". The previous version of this hint only ever
+            // displayed THIS device's own carrier name - it never actually
+            // compared it against the other person's carrier at all, so
+            // it could never distinguish a same-carrier call from a
+            // different-carrier one. That comparison is now real:
+            //
+            // - myCarrierId comes from CarrierDetector, same as before.
+            // - remoteCarrierId comes from the *other* side of the
+            //   signaling session - callee side reads callerCarrierId
+            //   (present from the moment the offer arrives, since the
+            //   caller writes it in createCall); caller side reads
+            //   calleeCarrierId (only present once the callee has
+            //   actually answered - see submitAnswer/receiveOfferAndSendAnswer
+            //   above for where that gets written now).
+            // - Both calls, in either direction, ALWAYS still connect over
+            //   the internet via the exact same WebRTC/STUN path below -
+            //   this hint is purely informational text, never a gate on
+            //   whether the call itself proceeds. That matches the
+            //   request precisely: same carrier gets a quieter "connecting"
+            //   message since nothing unusual is happening, different
+            //   carriers gets an explicit one-line heads-up that quality
+            //   can vary since the call is crossing operator networks
+            //   over general internet infrastructure rather than staying
+            //   on one operator's own network end-to-end - never a block,
+            //   never an extra confirmation step, exactly the "chhota sa
+            //   warning" that was asked for, not a hard stop.
+            var remoteCarrierIdFromSession by remember { mutableStateOf<String?>(null) }
+            val myCarrierIdForHint = remember { CarrierDetector.currentCarrierId(this@VideoCallActivity) }
+            val carrierRelationHint by produceState<String?>(
+                initialValue = null,
+                myCarrierIdForHint,
+                remoteCarrierIdFromSession
+            ) {
+                val myCarrierDisplay = CarrierDetector.currentCarrierDisplayName(this@VideoCallActivity) ?: "your carrier"
+                value = when {
+                    myCarrierIdForHint == null -> null
+                    remoteCarrierIdFromSession == null -> "On $myCarrierDisplay — connecting over the internet"
+                    myCarrierIdForHint == remoteCarrierIdFromSession -> "Both on $myCarrierDisplay — connecting over the internet"
+                    else -> "Different carriers — connecting over the internet, call quality may vary"
+                }
             }
 
 
-            DisposableEffect(hasCameraPermission) {
+            // Gated on hasAcceptedIncoming (in addition to
+            // hasCameraPermission, unchanged from before) so this entire
+            // block - which is what actually creates WebRtcCallManager,
+            // publishes this device's phone-directory entry, resolves the
+            // remote uid, and (for the caller) sends the offer - never
+            // runs at all for an incoming call still sitting at
+            // RINGING_INCOMING. hasAcceptedIncoming is already true from
+            // the very first frame for ROLE_CALLER (see its initial value
+            // above), so this doesn't change anything about how placing a
+            // call behaves - only about what happens before an incoming
+            // one is actually answered.
+            DisposableEffect(hasCameraPermission, hasAcceptedIncoming) {
+                if (!hasAcceptedIncoming) {
+                    return@DisposableEffect onDispose {}
+                }
                 if (localUid == null) {
-                    notSignedInMessage = "Sign in from More → Account to make video calls."
+                    notSignedInMessage = "Video calling couldn't sign in — check your connection and try again."
                     phase = VideoCallPhase.FAILED
                     return@DisposableEffect onDispose {}
                 }
@@ -245,11 +334,36 @@ class VideoCallActivity : ComponentActivity() {
                     if (role == ROLE_CALLEE) {
                         remoteCallerNumber = session.callerNumber
                     }
+                    // Feeds carrierRelationHint above: whichever role we're
+                    // NOT playing is "the other side", so the callee reads
+                    // the caller's carrier and vice versa. The caller's
+                    // value is present from the very first offer; the
+                    // callee's is only present after they've actually
+                    // answered (see submitAnswer) - until then this stays
+                    // null on the caller's side and carrierRelationHint
+                    // above correctly falls back to the "connecting over
+                    // the internet" wording with no comparison yet, rather
+                    // than showing a stale/wrong same-or-different verdict
+                    // before there's real data for both sides.
+                    remoteCarrierIdFromSession = if (role == ROLE_CALLEE) {
+                        session.callerCarrierId
+                    } else {
+                        session.calleeCarrierId
+                    }
                     when (session.status) {
                         SignalingSession.STATUS_RINGING -> {
-                            if (role == ROLE_CALLEE && session.offerSdp != null && remoteUidResolved == null) {
+                            // hasAcceptedIncoming guard is explicit here
+                            // (in addition to callManager being null until
+                            // accepted, via the DisposableEffect above) so
+                            // it's unambiguous that an unanswered/declined
+                            // incoming call never processes the offer or
+                            // sends an answer, rather than relying only on
+                            // callManager's null-safety as an implicit side
+                            // effect of it not having been created yet.
+                            if (role == ROLE_CALLEE && hasAcceptedIncoming && session.offerSdp != null && remoteUidResolved == null) {
                                 remoteUidResolved = session.callerUid
-                                callManager?.receiveOfferAndSendAnswer(session.offerSdp)
+                                val myCarrier = CarrierDetector.currentCarrierId(this@VideoCallActivity)
+                                callManager?.receiveOfferAndSendAnswer(session.offerSdp, myCarrier)
                             }
                         }
                         SignalingSession.STATUS_ACCEPTED -> {
@@ -274,6 +388,29 @@ class VideoCallActivity : ComponentActivity() {
             }
 
             AshuDialerTheme(themeId = themeId, fontSizeIndex = settings.fontSizeIndex) {
+                // Phase-aware back handling - see the long comment above
+                // onBackPressedDispatcher's old registration (now removed)
+                // for why this moved here. RINGING_INCOMING: back declines
+                // the call outright (the same action as the Decline
+                // button) rather than doing nothing or trying to PiP a
+                // screen with no video yet - an incoming call a person
+                // backs away from should behave like they walked away
+                // from it, not like it's still silently ringing
+                // somewhere. Every other phase keeps the exact same
+                // PiP-first behavior as before, falling through to a
+                // normal finish() only if the OEM build declines to let
+                // this Activity enter PiP at all.
+                BackHandler(enabled = true) {
+                    if (phase == VideoCallPhase.RINGING_INCOMING) {
+                        this@VideoCallActivity.lifecycleScope.launch {
+                            app.videoCallSignalingRepository.updateStatus(callId, SignalingSession.STATUS_DECLINED)
+                        }
+                        finish()
+                    } else if (!enterPipIfPossible()) {
+                        finish()
+                    }
+                }
+
                 // Same fix as InCallActivity - VideoCallActivity shares
                 // Theme.AshuDialer.Call (see AndroidManifest.xml) but, being
                 // a separate Activity with its own setContent, needs its own
@@ -296,7 +433,7 @@ class VideoCallActivity : ComponentActivity() {
                     remoteVideoTrack = remoteVideoTrack,
                     isMicEnabled = isMicEnabled,
                     isCameraEnabled = isCameraEnabled,
-                    sameCarrierHint = notSignedInMessage ?: sameCarrierHint,
+                    sameCarrierHint = notSignedInMessage ?: carrierRelationHint,
                     onToggleMic = {
                         isMicEnabled = !isMicEnabled
                         callManager?.setMicEnabled(isMicEnabled)
@@ -307,6 +444,44 @@ class VideoCallActivity : ComponentActivity() {
                     },
                     onSwitchCamera = { callManager?.switchCamera() },
                     onEndCall = { endCall() },
+                    // Wires IncomingVideoCallDecision's two buttons (via
+                    // VideoCallScreen's RINGING_INCOMING branch) to the
+                    // actual accept/decline behavior:
+                    //
+                    // Accept: only flips hasAcceptedIncoming to true and
+                    // advances phase to CONNECTING. That single state
+                    // change is what unblocks the two effects above
+                    // (camera permission request, then the
+                    // DisposableEffect that creates WebRtcCallManager and
+                    // starts processing the already-arrived offer) - nothing
+                    // else needs to happen here directly, since those
+                    // effects are already keyed on hasAcceptedIncoming and
+                    // will each recompose off this one flag.
+                    //
+                    // Decline: writes STATUS_DECLINED straight to the
+                    // signaling session (mirroring what endCall() does for
+                    // STATUS_ENDED) and finishes immediately, without ever
+                    // touching hasAcceptedIncoming, camera, or
+                    // WebRtcCallManager at all - so declining an incoming
+                    // video call is exactly as inert to this device's
+                    // camera/mic as never answering a regular phone call
+                    // is. teardown() is intentionally skipped here (unlike
+                    // endCall()): teardown releases signaling resources
+                    // this device set up as part of *accepting/placing* a
+                    // call (see its call at line 369 and in
+                    // onSwitchToVoiceCall below), and a declined call was
+                    // never accepted, so there's nothing on this side to
+                    // release.
+                    onAcceptIncoming = {
+                        hasAcceptedIncoming = true
+                        phase = VideoCallPhase.CONNECTING
+                    },
+                    onDeclineIncoming = {
+                        this@VideoCallActivity.lifecycleScope.launch {
+                            app.videoCallSignalingRepository.updateStatus(callId, SignalingSession.STATUS_DECLINED)
+                        }
+                        finish()
+                    },
                     // Only offered when there's an actual number to call -
                     // see fallbackVoiceNumber's doc above for the two
                     // cases (ROLE_CALLER always has one; ROLE_CALLEE only

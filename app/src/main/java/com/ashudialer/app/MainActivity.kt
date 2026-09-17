@@ -941,8 +941,38 @@ class MainActivity : ComponentActivity() {
                                         call = ongoingCall,
                                         palette = palette,
                                         onClick = {
+                                            // Bug fix: this was missing
+                                            // FLAG_ACTIVITY_SINGLE_TOP and
+                                            // FLAG_ACTIVITY_NO_USER_ACTION -
+                                            // the exact same gap that was
+                                            // found and fixed on the
+                                            // ongoing-call notification's
+                                            // content intent in
+                                            // CallNotificationHelper. Without
+                                            // SINGLE_TOP, tapping this banner
+                                            // to return to an in-progress
+                                            // call (InCallActivity is
+                                            // singleTask, already
+                                            // showWhenLocked/turnScreenOn)
+                                            // can make the system re-resolve
+                                            // the launch instead of resuming
+                                            // the existing task, and on some
+                                            // OEM keyguards that fresh-
+                                            // resolve path re-consults the
+                                            // lock screen before the
+                                            // activity's own window flags
+                                            // get a chance to apply - which
+                                            // is what produced "returning to
+                                            // a call from this banner asks
+                                            // for the unlock pattern" even
+                                            // though resuming a call in
+                                            // progress should never require
+                                            // that.
                                             val intent = Intent(context, com.ashudialer.app.telecom.InCallActivity::class.java).apply {
-                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                                    Intent.FLAG_ACTIVITY_NO_USER_ACTION
                                             }
                                             context.startActivity(intent)
                                         }

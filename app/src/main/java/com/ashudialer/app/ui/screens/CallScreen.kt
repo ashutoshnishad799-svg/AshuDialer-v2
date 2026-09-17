@@ -68,6 +68,11 @@ fun CallScreen(
     callerPhotoUri: String? = null,
     isConnected: Boolean = false,
     isOnHold: Boolean = false,
+    // Wall-clock time (System.currentTimeMillis()-based, same epoch as
+    // Telecom's own Call.Details.connectTimeMillis) the call actually went
+    // ACTIVE. 0L means "not connected yet / unknown" - see the seconds
+    // derivation below for why this replaces a simple incrementing counter.
+    connectTimeMillis: Long = 0L,
     canMerge: Boolean = false,
     canSwap: Boolean = false,
     secondaryCallerName: String? = null,
@@ -84,6 +89,19 @@ fun CallScreen(
     onDtmfDigit: (Char) -> Unit = {},
     onOpenNote: () -> Unit = {},
     onOpenVideoCall: (() -> Unit)? = null,
+    // Non-null only when this call's own carrier/network already
+    // reported both-directions video support (Call.Details capability
+    // bits CAPABILITY_SUPPORTS_VT_LOCAL_BIDIRECTIONAL and
+    // CAPABILITY_SUPPORTS_VT_REMOTE_BIDIRECTIONAL - see InCallActivity
+    // for exactly where that's checked) - i.e. this is a real native/VoLTE
+    // video upgrade, the same feature a stock carrier dialer (e.g. the
+    // Realme stock dialer's in-call "वीडियो कॉल" option) offers, and
+    // entirely separate from onOpenVideoCall above (this app's own
+    // internet/WebRTC video calling, which works between any two phones
+    // regardless of carrier support). Both can be offered at once when
+    // both are available - see MoreActionsSheet below for how they're
+    // distinguished in the More menu.
+    onUpgradeToNativeVideo: (() -> Unit)? = null,
     onToggleRecording: () -> Unit = {},
     isMuted: Boolean = false,
     onToggleMute: () -> Unit = {},
@@ -104,9 +122,56 @@ fun CallScreen(
     val palette = LocalDialerPalette.current
 
     var state by remember { mutableStateOf(CallUiState.CONNECTING) }
-    var seconds by remember { mutableStateOf(0) }
     var showKeypad by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
+
+    // THE FIX for "call duration resets to 0 when returning to the app
+    // after switching to another task": seconds used to be a plain
+    // `remember { mutableStateOf(0) }` counter that only ever incremented
+    // from inside this composable's own coroutine loop. `remember` only
+    // survives while this composable stays in the same composition - it
+    // does NOT survive InCallActivity itself being recreated, which is
+    // exactly what can happen when the person leaves the call screen for
+    // another app (or another screen inside this app) and the system
+    // reclaims/recreates the activity before they come back to it. On
+    // return, this composable started fresh, `seconds` came back as its
+    // initial 0, and the real call - genuinely still active in the
+    // background the entire time via Telecom - looked like it had just
+    // connected.
+    //
+    // connectTimeMillis is passed in from InCallActivity as Telecom's own
+    // Call.Details.connectTimeMillis - a wall-clock timestamp the Telecom
+    // framework maintains for the call itself, completely independent of
+    // this screen, this activity, or any composable's lifecycle. Deriving
+    // seconds from "now minus connectTimeMillis" instead of counting up
+    // from a remembered 0 means the very first frame after any recreation
+    // already shows the call's real elapsed duration, not a reset one -
+    // there's nothing to lose because nothing about the duration was ever
+    // stored locally in the first place.
+    //
+    // Fallback: connectTimeMillis is 0L on every normal path until Telecom
+    // actually reports STATE_ACTIVE (see InCallActivity - it only reads
+    // current.details?.connectTimeMillis once isConnected is true), so
+    // "no connect time yet" and "not connected yet" are the same moment in
+    // practice and showing 0 is correct there. The only scenario where the
+    // gap matters is a stale/misbehaving Telecom implementation reporting
+    // isConnected=true while still returning connectTimeMillis=0 - to keep
+    // the counter from silently freezing at 0 for the rest of a real call
+    // in that situation, fallBackStartMillis anchors to the first moment
+    // *this composable* observed an active call, exactly once (remembered,
+    // not reset on recomposition), and is only ever used as a last resort
+    // when Telecom's own timestamp isn't available.
+    var fallBackStartMillis by remember { mutableStateOf(0L) }
+    if (connectTimeMillis <= 0L && isConnected && !isOnHold && fallBackStartMillis == 0L) {
+        fallBackStartMillis = System.currentTimeMillis()
+    }
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    val effectiveConnectMillis = if (connectTimeMillis > 0L) connectTimeMillis else fallBackStartMillis
+    val seconds = if (effectiveConnectMillis > 0L) {
+        ((nowMillis - effectiveConnectMillis) / 1000L).toInt().coerceAtLeast(0)
+    } else {
+        0
+    }
 
     // Frame-driven entrance choreography: the old in-call screen was mostly
     // static, so opening it looked like a hard cut even though the rest of
@@ -157,11 +222,18 @@ fun CallScreen(
     // keying on that instead means the effect only restarts when the call
     // actually transitions in or out of "ticking" - not on every repeat
     // emission of the same state.
+    //
+    // This loop no longer increments a counter - seconds above is now
+    // purely derived from connectTimeMillis and the current wall clock.
+    // All this loop does now is refresh nowMillis once a second so that
+    // derivation actually recomputes and the displayed number keeps
+    // ticking - the source of truth moved to connectTimeMillis, this is
+    // just what makes the UI repaint.
     val isCallActive = state == CallUiState.ACTIVE && !isOnHold
     LaunchedEffect(isCallActive) {
         while (isCallActive) {
             delay(1000)
-            seconds++
+            nowMillis = System.currentTimeMillis()
         }
     }
 
@@ -377,6 +449,7 @@ fun CallScreen(
                     onAddCall = onAddCall,
                     onOpenNote = onOpenNote,
                     onOpenVideoCall = onOpenVideoCall,
+                    onUpgradeToNativeVideo = onUpgradeToNativeVideo,
                     onDismiss = { showMore = false }
                 )
             }
@@ -750,6 +823,7 @@ private fun MoreActionsSheet(
     onAddCall: () -> Unit,
     onOpenNote: () -> Unit,
     onOpenVideoCall: (() -> Unit)?,
+    onUpgradeToNativeVideo: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     Column(
@@ -784,9 +858,45 @@ private fun MoreActionsSheet(
             ) { onToggleHold(); onDismiss() }
         }
         MoreActionRow(Icons.Filled.PersonAdd, "Add call", palette) { onAddCall(); onDismiss() }
+        // Two separate video-calling rows, shown independently based on
+        // what's actually available for this specific call - see
+        // onUpgradeToNativeVideo's doc comment on CallScreen's signature
+        // for the distinction:
+        //
+        // - Native/VoLTE upgrade: only offered when THIS call's own
+        //   carrier connection already reported bidirectional video
+        //   support (checked once, in InCallActivity, from the live
+        //   Call.Details capability bits - never assumed available just
+        //   because the button exists). Labeled "Switch to video call"
+        //   since it upgrades the exact same ongoing call in place,
+        //   matching what a stock carrier dialer's in-call video option
+        //   does.
+        // - This app's own internet video calling: offered whenever
+        //   video calling is configured (signed in + own number saved -
+        //   see AshuDialerApp/AuthRepository), completely independent of
+        //   carrier support, since it starts a new WebRTC call over data
+        //   rather than upgrading the carrier connection itself.
+        //
+        // Both can show at once on a call where both happen to be true;
+        // neither replaces the other, since they're genuinely different
+        // mechanisms with different requirements on the other side.
+        if (onUpgradeToNativeVideo != null) {
+            MoreActionRow(Icons.Filled.Videocam, "Switch to video call", palette, enabled = true) { onUpgradeToNativeVideo(); onDismiss() }
+        }
         if (onOpenVideoCall != null) {
-            MoreActionRow(Icons.Filled.Videocam, "Video call", palette, enabled = true) { onOpenVideoCall(); onDismiss() }
-        } else {
+            // Reuses the same Videocam icon as the native row above rather
+            // than a second, unverified icon name (Icons.Filled.VideoCall
+            // isn't confirmed to exist in this project's Material Icons
+            // version, while Videocam is already used successfully
+            // elsewhere in this exact file) - the two rows are
+            // distinguished by their labels ("Switch to video call" vs
+            // "Internet video call"), which is unambiguous either way.
+            MoreActionRow(Icons.Filled.Videocam, "Internet video call", palette, enabled = true) { onOpenVideoCall(); onDismiss() }
+        } else if (onUpgradeToNativeVideo == null) {
+            // Only shown as the "Coming soon" placeholder when NEITHER
+            // video option is available - two enabled rows plus a third
+            // disabled one saying the same feature is unavailable would
+            // be a confusing thing to show together.
             MoreActionRow(Icons.Filled.Videocam, "Video call", palette, enabled = false, trailing = "Coming soon") { }
         }
         if (availableAudioRoutes.size > 2) {

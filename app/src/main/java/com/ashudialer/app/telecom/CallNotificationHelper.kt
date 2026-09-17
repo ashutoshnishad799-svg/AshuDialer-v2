@@ -46,6 +46,10 @@ object CallNotificationHelper {
         try {
             lastCallerName = callerName
             lastIsIncoming = true
+            // A genuinely new ring starting - reset so this new call gets
+            // its own single setFullScreenIntent wake request. See the
+            // long comment in postIncomingFrame for the full reasoning.
+            fullScreenIntentAlreadySentForThisRing = false
 
             // Post the first frame immediately. The old implementation waited
             // for the pulse loop's first 500 ms tick, which is too fragile for
@@ -105,6 +109,10 @@ object CallNotificationHelper {
     private fun stopAvatarPulse() {
         pulseRunnable?.let { pulseHandler.removeCallbacks(it) }
         pulseRunnable = null
+        // Ring is over (answered, declined, or timed out) - clear so the
+        // next incoming call starts its own fresh single wake request
+        // rather than inheriting this one's "already sent" state.
+        fullScreenIntentAlreadySentForThisRing = false
     }
 
     private val ledHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -184,16 +192,59 @@ object CallNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // DEEP FIX for "screen doesn't wake for a locked-screen incoming
+        // call": this function is called every ~500ms for the whole
+        // duration of ringing, by startAvatarPulse below, purely to flip
+        // the avatar ring drawable between bright/dim for a breathing
+        // effect. Every one of those calls used to also re-attach
+        // setFullScreenIntent(fullScreenPendingIntent, true) to a freshly
+        // notify()'d Notification object - so a screen-off incoming call
+        // wasn't asking Android to wake the screen once, it was asking
+        // ~2 times a second for as long as the phone rang.
+        //
+        // That repeated re-declaration is what actually broke the wake:
+        // some OEM notification stacks (this exact pattern has been
+        // observed causing missed wakes on MIUI/Xiaomi builds, which is
+        // this app's primary test target) treat a fullScreenIntent that
+        // gets re-declared on every update of the *same* notification as
+        // "already handled/shown", and silently stop actually firing the
+        // intent (or stop actually turning the screen on) after the first
+        // attempt - so if that very first attempt lost a timing race
+        // against the screen genuinely being off (which full-screen-intent
+        // wake is not always instant about), every subsequent one from the
+        // pulse loop was a no-op, and the screen just never came on.
+        // Android's own NotificationManager also throttles/collapses
+        // full-screen-intent redeliveries on the *same* notification more
+        // aggressively than it throttles a plain content update, which
+        // compounds the same problem even on stock/AOSP-ish builds.
+        //
+        // The actual fix: only the very first post of a given ring
+        // (isFirstFrameOfThisRing) attaches setFullScreenIntent at all.
+        // Every pulse update after that reuses the exact same Notification
+        // fields except the avatar drawable - notify()'ing an update to an
+        // already-shown notification is enough to refresh what's on
+        // screen/lock-screen, and does NOT require (or benefit from)
+        // re-asking the system to wake the screen and launch the
+        // full-screen UI a second time. This mirrors how every stock
+        // dialer actually behaves: one wake request per ring, not one
+        // every pulse tick.
+        val isFirstFrameOfThisRing = !fullScreenIntentAlreadySentForThisRing
+        fullScreenIntentAlreadySentForThisRing = true
+
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_call_notification)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
             .setContentIntent(fullScreenPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .apply {
+                if (isFirstFrameOfThisRing) {
+                    setFullScreenIntent(fullScreenPendingIntent, true)
+                }
+            }
 
         val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val caller = androidx.core.app.Person.Builder()
@@ -221,6 +272,13 @@ object CallNotificationHelper {
 
         notify(context, notification)
     }
+
+    // Tracks whether setFullScreenIntent has already been attached for the
+    // ring currently in progress - see the long comment in postIncomingFrame
+    // for why this must only happen once per ring, not once per pulse tick.
+    // Reset in showIncomingCallNotification (a genuinely new incoming call
+    // starting) and in stopAvatarPulse (the ring ending, whichever way).
+    private var fullScreenIntentAlreadySentForThisRing: Boolean = false
 
 
     var isCallScreenVisible: Boolean = false

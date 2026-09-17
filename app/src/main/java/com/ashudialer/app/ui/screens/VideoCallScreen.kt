@@ -40,7 +40,12 @@ import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
 import kotlin.math.roundToInt
 
-enum class VideoCallPhase { CONNECTING, RINGING_REMOTE, ACTIVE, RECONNECTING, FAILED, ENDED }
+// RINGING_INCOMING: added so an incoming video call actually stops for a
+// real accept/decline decision on this device, instead of connecting the
+// instant the notification is tapped. See VideoCallActivity's role ==
+// ROLE_CALLEE handling for exactly where this phase is entered and how
+// accept/decline each resolve it.
+enum class VideoCallPhase { RINGING_INCOMING, CONNECTING, RINGING_REMOTE, ACTIVE, RECONNECTING, FAILED, ENDED }
 
 
 @Composable
@@ -58,6 +63,15 @@ fun VideoCallScreen(
     onSwitchCamera: () -> Unit,
     onEndCall: () -> Unit,
     isInPip: Boolean = false,
+    // Only non-null during VideoCallPhase.RINGING_INCOMING - see
+    // VideoCallActivity's ROLE_CALLEE handling for where this phase is
+    // entered/resolved. When both are null (every other phase), this
+    // screen renders its normal in-call controls exactly as before;
+    // RINGING_INCOMING instead renders IncomingVideoCallDecision below and
+    // nothing else, so a call can never silently connect without one of
+    // these two actually being tapped.
+    onAcceptIncoming: (() -> Unit)? = null,
+    onDeclineIncoming: (() -> Unit)? = null,
     // Non-null only when there's an actual number this screen can hand
     // off to for a plain voice call instead - see VideoCallActivity's
     // fallbackVoiceNumber for exactly when that is. Kept nullable rather
@@ -86,6 +100,26 @@ fun VideoCallScreen(
                 )
             }
         }
+        return
+    }
+
+    // DEEP FIX for "a received video call request should show me an
+    // accept screen, not connect automatically": RINGING_INCOMING is a
+    // dead end on its own screen, deliberately never falling through to
+    // the normal in-call layout below it. Nothing about camera/mic/remote
+    // video is touched or shown here - WebRtcCallManager.initialize()
+    // (which starts this device's own camera capture) only ever runs
+    // after onAcceptIncoming is actually tapped, on the VideoCallActivity
+    // side - so declining, or simply never answering, this phase never
+    // once turns this device's camera on or sends anything to the other
+    // side, exactly like declining a real call never does.
+    if (phase == VideoCallPhase.RINGING_INCOMING) {
+        IncomingVideoCallDecision(
+            callerName = callerName,
+            onAccept = onAcceptIncoming ?: {},
+            onDecline = onDeclineIncoming ?: {},
+            modifier = modifier
+        )
         return
     }
 
@@ -256,12 +290,108 @@ private fun VideoControlButton(icon: androidx.compose.ui.graphics.vector.ImageVe
 }
 
 private fun statusLabel(phase: VideoCallPhase): String = when (phase) {
+    VideoCallPhase.RINGING_INCOMING -> "Incoming video call"
     VideoCallPhase.CONNECTING -> "Connecting…"
     VideoCallPhase.RINGING_REMOTE -> "Ringing…"
     VideoCallPhase.ACTIVE -> "Video call"
     VideoCallPhase.RECONNECTING -> "Reconnecting…"
     VideoCallPhase.FAILED -> "Couldn't connect"
     VideoCallPhase.ENDED -> "Call ended"
+}
+
+/**
+ * The screen shown while VideoCallPhase.RINGING_INCOMING - a real,
+ * deliberate accept/decline decision, the same as this app's regular
+ * IncomingCallScreen makes for a normal phone call. Kept visually distinct
+ * from that screen (full-screen black backdrop matching the rest of
+ * VideoCallScreen, a simple centered avatar-initial circle rather than a
+ * themed aurora background) since it's a different call type entirely and
+ * doesn't need to match the dialer's own per-theme styling the way a
+ * regular call's screen does - what matters is that it's unmistakably an
+ * incoming call needing a decision, with nothing auto-connecting.
+ */
+@Composable
+private fun IncomingVideoCallDecision(
+    callerName: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.fillMaxSize().background(Color(0xFF0B0B10))) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.height(28.dp))
+            Text(
+                "INCOMING VIDEO CALL",
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2A2A35)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = callerName.trim().firstOrNull()?.uppercase() ?: "?",
+                    color = Color.White,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Spacer(Modifier.height(22.dp))
+            Text(
+                callerName.ifBlank { "Unknown caller" },
+                color = Color.White,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(6.dp))
+            Text("Video call", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp)
+
+            Spacer(Modifier.weight(1f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(
+                        onClick = onDecline,
+                        modifier = Modifier.size(64.dp).clip(CircleShape).background(Color(0xFFE0442E))
+                    ) {
+                        Icon(Icons.Filled.CallEnd, contentDescription = "Decline", tint = Color.White, modifier = Modifier.size(28.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Decline", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(
+                        onClick = onAccept,
+                        modifier = Modifier.size(64.dp).clip(CircleShape).background(Color(0xFF34C759))
+                    ) {
+                        Icon(Icons.Filled.Videocam, contentDescription = "Accept", tint = Color.White, modifier = Modifier.size(28.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Accept", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
 }
 
 

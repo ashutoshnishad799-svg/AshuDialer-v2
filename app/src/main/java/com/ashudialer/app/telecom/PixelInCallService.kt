@@ -246,6 +246,56 @@ class PixelInCallService : InCallService() {
                 call.unregisterCallback(this)
             }
         }
+
+        // DEEP FIX (native/VoLTE video calling - the incoming-upgrade
+        // half of the feature; the outgoing half is the
+        // sendSessionModifyRequest wiring in InCallActivity's
+        // onUpgradeToNativeVideo): Call.videoCall only actually becomes
+        // non-null once Telecom/the carrier attaches a VideoProvider to
+        // this call - which can happen either because this device itself
+        // requested video (answered as STATE_BIDIRECTIONAL, or sent its
+        // own upgrade request) or because the OTHER party requested an
+        // upgrade mid-call. Registering a VideoCall.Callback here, the
+        // moment videoCall appears, is what lets this app actually
+        // respond to that second case - a request arriving from the other
+        // side - rather than silently ignoring it, which would leave the
+        // other person's upgrade attempt hanging with no response at all
+        // until it times out on their end.
+        override fun onVideoCallChanged(call: Call, videoCall: android.telecom.InCallService.VideoCall?) {
+            super.onVideoCallChanged(call, videoCall)
+            videoCall?.registerCallback(object : android.telecom.InCallService.VideoCall.Callback() {
+                override fun onSessionModifyRequestReceived(requestProfile: android.telecom.VideoProfile) {
+                    // Auto-accepts a video upgrade the other party
+                    // requested, the same way this app already answers a
+                    // call that arrives already requesting video (see
+                    // answerVideoStateFor's doc comment in InCallActivity)
+                    // - both are "the network/other party is offering
+                    // video, let it through" rather than a decision this
+                    // app second-guesses. Responding at all (rather than
+                    // never calling sendSessionModifyResponse) is required
+                    // by the platform - the requester's side is left
+                    // waiting until this is called, one way or another.
+                    runCatching {
+                        videoCall.sendSessionModifyResponse(
+                            android.telecom.VideoProfile(android.telecom.VideoProfile.STATE_BIDIRECTIONAL)
+                        )
+                    }
+                }
+
+                override fun onSessionModifyResponseReceived(
+                    status: Int,
+                    requestedProfile: android.telecom.VideoProfile?,
+                    responseProfile: android.telecom.VideoProfile?
+                ) {
+                }
+
+                override fun onCallSessionEvent(event: Int) {}
+                override fun onPeerDimensionsChanged(width: Int, height: Int) {}
+                override fun onVideoQualityChanged(videoQuality: Int) {}
+                override fun onCallDataUsageChanged(dataUsage: Long) {}
+                override fun onCameraCapabilitiesChanged(cameraCapabilities: android.telecom.VideoProfile.CameraCapabilities?) {}
+            })
+        }
     }
 
     override fun onCallAdded(call: Call) {
@@ -501,8 +551,32 @@ class PixelInCallService : InCallService() {
     }
 
 
+    // DEEP FIX for "native VoLTE video calling isn't supported" (part 1 of
+    // 2 - the matching InCallActivity call sites cover the other two
+    // paths): every answer() call in this app used to hardcode
+    // VideoProfile.STATE_AUDIO_ONLY unconditionally, regardless of what
+    // kind of call was actually incoming. Telecom/the carrier's own
+    // ConnectionService reports whether an incoming call itself requested
+    // video via Call.Details.getVideoState() - if a call genuinely arrives
+    // already carrying STATE_BIDIRECTIONAL (a real VoLTE video call being
+    // placed to this device), forcing STATE_AUDIO_ONLY on it here was
+    // actively downgrading a call that was never audio-only to begin with,
+    // not "supporting audio calls" - the carrier network handles that
+    // downgrade decision on its own for calls that never requested video
+    // in the first place, so this only ever changes behavior for a call
+    // that already came in requesting video.
+    //
+    // VideoProfile.isAudioOnly(int) (not a plain == comparison -
+    // STATE_AUDIO_ONLY is 0, so == misses any state with the paused bit
+    // set) is the platform-documented correct way to check this.
     fun answer() {
-        runCatching { currentCall?.answer(android.telecom.VideoProfile.STATE_AUDIO_ONLY) }
+        val videoState = currentCall?.details?.videoState ?: android.telecom.VideoProfile.STATE_AUDIO_ONLY
+        val answerAsVideo = if (android.telecom.VideoProfile.isAudioOnly(videoState)) {
+            android.telecom.VideoProfile.STATE_AUDIO_ONLY
+        } else {
+            android.telecom.VideoProfile.STATE_BIDIRECTIONAL
+        }
+        runCatching { currentCall?.answer(answerAsVideo) }
             .onFailure { Log.w(TAG, "Answer request failed", it) }
     }
 

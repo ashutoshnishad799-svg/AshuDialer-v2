@@ -79,6 +79,47 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // SIZE FIX (without removing any feature): this app is distributed
+        // as a plain .apk built via `assembleRelease` (see
+        // .github/workflows/build.yml - NOT an .aab/App Bundle, which
+        // would otherwise let Google Play auto-generate one slim APK per
+        // device automatically), so without this, a single APK ships
+        // native .so libraries for every ABI Android supports - most
+        // significantly stream-webrtc-android's native WebRTC binary,
+        // which is large per architecture, plus Firebase's smaller native
+        // pieces on top. abiFilters keeps arm64-v8a (every 64-bit device -
+        // required by Google Play policy since Aug 2019, and what modern
+        // devices including this app's own primary test targets, Redmi 12
+        // 5G / POCO M6 Pro 5G, actually run) and armeabi-v7a (32-bit ARM -
+        // still genuinely in use on older/budget Indian devices, so kept
+        // rather than dropped) and drops x86/x86_64, which exist purely
+        // for Intel-based emulators and essentially never appear on a
+        // real phone this app's users would install it on. This changes
+        // nothing about what the app does or which features it has - it
+        // only stops bundling native code compiled for CPU architectures
+        // none of this app's actual users run.
+        // SIZE FIX (without removing any feature): this app has no
+        // values-*/ locale folders of its own (confirmed - every string
+        // shown anywhere in this app's UI is a plain Kotlin string
+        // literal in the source, not a string resource pulled from
+        // res/values-<locale>/), so it never actually reads a localized
+        // resource string from Firebase/Play Services/AndroidX at
+        // runtime regardless of the device's language. Those libraries
+        // each ship their own translated strings for dozens of
+        // languages, all bundled into every APK by default whether or
+        // not the app itself ever displays any of them. resConfigs keeps
+        // only the locale qualifiers actually meaningful here (the
+        // default/English resources, which is what would render
+        // regardless) and drops every other language's copy of those
+        // libraries' resource strings - this doesn't remove or change
+        // any UI text this app itself shows, since none of it was ever
+        // sourced from those dropped resources to begin with.
+        resourceConfigurations += listOf("en")
+
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     flavorDimensions += "distribution"
@@ -117,6 +158,22 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // SIZE FIX (without removing any feature): isMinifyEnabled
+            // above already shrinks/obfuscates CODE via R8, but that's a
+            // separate pass from resources - without this, every drawable,
+            // layout, and string in the compiled resource table ships in
+            // the APK whether or not any code path actually references it
+            // anymore (common after months of UI iteration - old drawables
+            // from a since-replaced icon, string resources for a removed
+            // string, etc.). isShrinkResources runs R8's resource shrinker,
+            // which traces actual reachability from code exactly like the
+            // code shrinker does, and only removes resources it can prove
+            // are unreachable - it does not touch or guess about anything
+            // a real code path can still reach, so this cannot silently
+            // drop something in use the way manually deleting drawables by
+            // hand could. Requires isMinifyEnabled = true (already set
+            // above) since it reads R8's own reachability analysis.
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -166,6 +223,28 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // SIZE FIX (without removing any feature): every one of these
+            // is build/legal metadata that several of this app's
+            // dependencies (Firebase, Play Services, Kotlin coroutines,
+            // AndroidX) each bundle their own duplicate copy of inside
+            // META-INF/ - none of them are read at runtime by anything,
+            // they're purely packaging artifacts left over from how those
+            // libraries are published to Maven. Excluding them is
+            // equivalent to the AL2.0/LGPL2.1 exclusion already above,
+            // just covering the handful of other well-known duplicate
+            // patterns that show up once a project has this many
+            // dependencies - none of these have ever been license files
+            // this app is obligated to ship (the actual required
+            // attributions live in the app's own about/licenses screen,
+            // not in these per-library build metadata files).
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/LICENSE.txt"
+            excludes += "/META-INF/LICENSE-notice.md"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/NOTICE.txt"
+            excludes += "/META-INF/*.kotlin_module"
+            excludes += "/META-INF/versions/9/previous-compilation-data.bin"
         }
     }
 }
