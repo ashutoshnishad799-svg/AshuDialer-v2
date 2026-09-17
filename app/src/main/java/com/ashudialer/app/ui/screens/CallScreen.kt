@@ -892,13 +892,21 @@ private fun MoreActionsSheet(
             // distinguished by their labels ("Switch to video call" vs
             // "Internet video call"), which is unambiguous either way.
             MoreActionRow(Icons.Filled.Videocam, "Internet video call", palette, enabled = true) { onOpenVideoCall(); onDismiss() }
-        } else if (onUpgradeToNativeVideo == null) {
-            // Only shown as the "Coming soon" placeholder when NEITHER
-            // video option is available - two enabled rows plus a third
-            // disabled one saying the same feature is unavailable would
-            // be a confusing thing to show together.
-            MoreActionRow(Icons.Filled.Videocam, "Video call", palette, enabled = false, trailing = "Coming soon") { }
         }
+        // UX FIX: this used to fall back to a permanently-disabled "Video
+        // call - Coming soon" row whenever neither video option was
+        // available. That row could never actually turn on by itself for
+        // anyone whose Firebase project isn't fully configured (missing
+        // google-services.json at build time, or signed out with no
+        // network to complete the app's own silent sign-in) - meaning
+        // some real installs would see a dead, unexplained "Coming soon"
+        // button in the More menu on every single call, forever, which
+        // reads as a broken/unfinished feature rather than an honest
+        // absence. Showing nothing at all when there's genuinely nothing
+        // to offer is the same pattern this app already uses for
+        // recordingAvailable/canMerge/canSwap above (each row is either
+        // real and tappable, or not shown) - a row that can never do
+        // anything doesn't belong in this menu.
         if (availableAudioRoutes.size > 2) {
             availableAudioRoutes.forEach { route ->
                 MoreActionRow(

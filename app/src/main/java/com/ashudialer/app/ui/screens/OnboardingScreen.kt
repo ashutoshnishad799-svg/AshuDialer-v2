@@ -123,7 +123,12 @@ fun OnboardingScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .glassCard(palette, corner = 100.dp, tintAlpha = 0.7f)
+                        // Matches the 18dp rounding used on the bottom
+                        // nav buttons now (was 100dp, another full pill) -
+                        // see OnboardingPrimaryButton's doc comment for
+                        // the full reasoning behind moving away from
+                        // maximum rounding everywhere.
+                        .glassCard(palette, corner = 18.dp, tintAlpha = 0.7f)
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Box(
@@ -266,7 +271,21 @@ private fun OnboardingPrimaryButton(text: String, palette: DialerPalette, onClic
             .fillMaxWidth()
             .height(54.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
+            // DESIGN FIX for "onboarding looks cartoony": this was
+            // CircleShape (a fully rounded pill/capsule) on both this
+            // primary button AND the secondary "Back" button below,
+            // stacked on top of an already-playful rainbow gradient
+            // backdrop, a rounded pill badge up top, and fully circular
+            // theme swatches - the combined effect read as candy-like
+            // rather than a premium dialer's onboarding. Moderate 18dp
+            // corners keep the rounded, friendly character (this is still
+            // an onboarding flow, not a settings form) without every
+            // single element being a perfect circle/capsule, which is
+            // what actually produced the "cartoony" impression - one
+            // consistent rounding language across the flow feels crafted,
+            // whereas every shape independently being "as round as
+            // possible" is what reads as a toy/game UI.
+            .clip(RoundedCornerShape(18.dp))
             .background(palette.accent)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -289,7 +308,12 @@ private fun OnboardingSecondaryButton(text: String, palette: DialerPalette, onCl
         Modifier
             .height(54.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .glassCard(palette, corner = 100.dp, tintAlpha = 0.55f)
+            // Matches OnboardingPrimaryButton's corner fix above - same
+            // 18dp rounding instead of glassCard's own corner param
+            // (which was 100.dp, i.e. also a full pill) so the two
+            // buttons in this same row read as one consistent pair
+            // rather than two different rounding styles side by side.
+            .glassCard(palette, corner = 18.dp, tintAlpha = 0.55f)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center

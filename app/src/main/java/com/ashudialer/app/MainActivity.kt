@@ -1203,10 +1203,22 @@ class MainActivity : ComponentActivity() {
                                                 if (intent != null) {
                                                     signInLauncher.launch(intent)
                                                 } else {
+                                                    // UX FIX: this used to show a fixed
+                                                    // "Sign-in isn't set up yet" message no
+                                                    // matter why signInIntent() came back
+                                                    // null, which gave no way to tell whether
+                                                    // that meant a missing google-services.json,
+                                                    // a Firebase project with no Web app
+                                                    // registered, or something else - see
+                                                    // AuthRepository.diagnosisMessage() for the
+                                                    // actual check. LENGTH_LONG since the real
+                                                    // diagnosis is a full sentence, not a short
+                                                    // status word.
                                                     Toast.makeText(
                                                         context,
-                                                        "Sign-in isn't set up yet",
-                                                        Toast.LENGTH_SHORT
+                                                        viewModel.signInDiagnosisMessage()
+                                                            ?: "Sign-in isn't set up yet",
+                                                        Toast.LENGTH_LONG
                                                     ).show()
                                                 }
                                             },

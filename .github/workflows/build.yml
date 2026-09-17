@@ -92,6 +92,37 @@ jobs:
           printf '%s' "$ASHU_RELEASE_KEYSTORE_BASE64" | base64 -d > app/ashuphone-release.keystore
           test -s app/ashuphone-release.keystore
 
+      # Prints this keystore's SHA-1/SHA-256 fingerprints on every single
+      # build, so a Google Sign-In failure (video calling / cloud backup
+      # both use it) can be diagnosed straight from this log instead of
+      # needing a separate local `keytool` run - see
+      # GOOGLE_SIGNIN_CI_FIX.md section 3: Google Sign-In additionally
+      # checks the signing certificate that actually built the APK against
+      # fingerprints registered in Firebase Console, so a perfectly valid
+      # google-services.json still fails sign-in at runtime if THIS
+      # fingerprint isn't the one registered there. This step never fails
+      # the build either way (fingerprint mismatch is a Firebase Console
+      # configuration issue, not a build error) - it only makes the
+      # information visible.
+      - name: Print release keystore fingerprints (for Firebase Console)
+        env:
+          ASHU_RELEASE_STORE_PASSWORD: ${{ secrets.ASHU_RELEASE_STORE_PASSWORD }}
+          ASHU_RELEASE_KEY_ALIAS: ${{ secrets.ASHU_RELEASE_KEY_ALIAS }}
+        run: |
+          echo "================================================================"
+          echo "  If Google Sign-In (video calling / cloud backup) doesn't work"
+          echo "  on the built APK, confirm the SHA-1 below is registered in:"
+          echo "  Firebase Console -> Project Settings -> Your apps ->"
+          echo "  the com.ashudialer.app Android app -> Add fingerprint"
+          echo "================================================================"
+          keytool -list -v \
+            -keystore app/ashuphone-release.keystore \
+            -alias "$ASHU_RELEASE_KEY_ALIAS" \
+            -storepass "$ASHU_RELEASE_STORE_PASSWORD" \
+            2>/dev/null | grep -E "SHA1:|SHA256:" || \
+            echo "⚠️  Could not read the keystore to print fingerprints - check ASHU_RELEASE_KEY_ALIAS/ASHU_RELEASE_STORE_PASSWORD secrets are correct."
+          echo "================================================================"
+
       # Build + sign Release APK in one Gradle pass using the restored
       # keystore. Gradle's own signing pipeline handles zipalign + V2/V3
       # signing internally, so no separate apksigner/zipalign step is

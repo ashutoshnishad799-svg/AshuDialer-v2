@@ -645,6 +645,7 @@ class MainViewModel(
 
 
     fun signInIntent(): Intent? = authRepository.signInIntent()
+    fun signInDiagnosisMessage(): String? = authRepository.diagnosisMessage()
 
     fun handleSignInResult(data: Intent?, onDone: (Boolean, String?) -> Unit) {
         viewModelScope.launch {

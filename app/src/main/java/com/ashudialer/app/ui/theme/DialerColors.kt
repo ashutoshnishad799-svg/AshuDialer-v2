@@ -30,8 +30,21 @@ val GradientPalette = DialerPalette(
     id = "gradient",
     displayName = "Gradient",
     isDark = false,
+    // DESIGN FIX for "Gradient theme doesn't feel like a gradient": the
+    // previous 4 stops (0xFFE8FBF5 -> 0xFFB9EDE0 -> 0xFF7FD8C9 ->
+    // 0xFF52C4B0) were all the same teal hue at different lightness
+    // levels only - visually that reads as a single flat-ish color with
+    // very soft shading rather than a genuine gradient, especially across
+    // a short vertical span where the difference between adjacent stops
+    // barely registers. This widens the lightness range at both ends
+    // (a near-white top, a noticeably deeper teal at the bottom - was
+    // medium-light to medium) and adds a small hue drift toward blue at
+    // the bottom stop, so the transition from top to bottom is now
+    // actually visible as a gradient rather than a gentle tint - while
+    // staying in the same teal/mint family so this doesn't become a
+    // different-feeling theme, just a more legibly gradient one.
     background = Brush.verticalGradient(
-        colors = listOf(Color(0xFFE8FBF5), Color(0xFFB9EDE0), Color(0xFF7FD8C9), Color(0xFF52C4B0))
+        colors = listOf(Color(0xFFF3FDFA), Color(0xFFC3F2E3), Color(0xFF6FCDBB), Color(0xFF2E9E93))
     ),
     solidBackground = Color(0xFFB9EDE0),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.92f),
@@ -45,8 +58,8 @@ val GradientPalette = DialerPalette(
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.95f),
     avatarBackground = Color(0xFFCFEFE6),
     callGreen = Color(0xFF34C759),
-    swatchStart = Color(0xFFB9EDE0),
-    swatchEnd = Color(0xFF0F8A7C)
+    swatchStart = Color(0xFFC3F2E3),
+    swatchEnd = Color(0xFF2E9E93)
 )
 
 

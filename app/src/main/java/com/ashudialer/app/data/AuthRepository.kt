@@ -39,6 +39,27 @@ class AuthRepository(private val context: Context) {
         null
     }
 
+    /**
+     * A specific, human-readable reason sign-in is unavailable, for
+     * MainActivity to show instead of a generic "isn't set up yet" toast -
+     * added directly in response to "login kyu nhi kaam kar raha" with no
+     * way to tell why from inside the app itself. Returns null when
+     * sign-in IS available (firebaseAuth non-null AND webClientId()
+     * non-blank) - MainActivity only calls this when signInIntent()
+     * already returned null, so a null return here would be unexpected,
+     * but is handled with a clearly-labeled fallback message rather than
+     * silently showing nothing.
+     */
+    fun diagnosisMessage(): String? {
+        if (firebaseAuth == null) {
+            return "Firebase isn't configured in this build (google-services.json missing or invalid) — video calling and cloud backup need it, ask whoever built this APK to check it."
+        }
+        if (webClientId().isEmpty()) {
+            return "Google Sign-In's web client ID is missing from this build's google-services.json — this can happen if the Firebase project has no Web app registered. Cloud backup and video calling both need this fixed at the Firebase Console."
+        }
+        return null
+    }
+
     private val googleSignInClient: GoogleSignInClient? by lazy {
         if (firebaseAuth == null) return@lazy null
         val webId = webClientId()
