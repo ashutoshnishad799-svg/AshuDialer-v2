@@ -62,6 +62,7 @@ import com.ashudialer.app.ui.screens.*
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 import com.ashudialer.app.ui.theme.AshuDialerTheme
 import com.ashudialer.app.util.phoneNumbersMatch
+import com.ashudialer.app.util.openWhatsAppChat
 import com.ashudialer.app.viewmodel.MainViewModel
 import com.ashudialer.app.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.first
@@ -649,30 +650,12 @@ class MainActivity : ComponentActivity() {
                 context.startActivity(intent)
             }
 
-            fun openWhatsApp(number: String) {
-                try {
-
-
-                    val cleaned = number.filter { it.isDigit() || it == '+' }
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$cleaned")).apply {
-                        setPackage("com.whatsapp")
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-
-
-                    try {
-                        val cleaned = number.filter { it.isDigit() || it == '+' }
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$cleaned"))
-                                .apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-                        )
-                    } catch (e2: Exception) {
-                        Toast.makeText(context, "Couldn't open WhatsApp", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
+            // Delegates to the shared implementation in util/WhatsAppLauncher.kt -
+            // see that file's own doc for why this used to be a separate,
+            // subtly buggy inline copy (kept a leading "+", never added a
+            // country code to a bare local number) and is now the same
+            // single implementation VideoCallActivity's fallback also uses.
+            fun openWhatsApp(number: String) = openWhatsAppChat(context, number)
 
             fun recordingUri(file: java.io.File): Uri =
                 androidx.core.content.FileProvider.getUriForFile(context, "com.ashudialer.app.fileprovider", file)

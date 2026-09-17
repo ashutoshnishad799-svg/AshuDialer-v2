@@ -83,6 +83,26 @@ fun VideoCallScreen(
     // their own settings) - showing a button that can't actually place a
     // call would be worse than not showing one.
     onSwitchToVoiceCall: (() -> Unit)? = null,
+    // Non-null only when this specific failure is "the number we dialed
+    // isn't reachable through our own signaling directory" (i.e. the other
+    // person isn't on AshuDialer, or hasn't opened it since installing) AND
+    // WhatsApp is actually installed on this device - see
+    // VideoCallActivity's calleeNotFoundOnDirectory/isWhatsAppInstalled for
+    // exactly when both are true. Deliberately NOT offered for every FAILED
+    // reason (camera permission denied, not signed in, etc.) - those have
+    // nothing to do with the other person's number being unreachable, so a
+    // WhatsApp button there would be a non-sequitur. And deliberately never
+    // shown when WhatsApp isn't installed - same "don't show a button that
+    // can't actually do anything" rule onSwitchToVoiceCall already follows.
+    //
+    // What tapping this actually does (see VideoCallActivity): opens a
+    // WhatsApp chat with this number via WhatsApp's own click-to-chat deep
+    // link. It does NOT programmatically start a WhatsApp video call -
+    // WhatsApp doesn't expose any public way for another app to do that,
+    // only to open the chat - so from there the person still taps
+    // WhatsApp's own video-call button themselves. That's genuinely the
+    // most any third-party app can offer here.
+    onOpenWhatsApp: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // The system's floating PiP window is only a couple of centimetres
@@ -237,6 +257,31 @@ fun VideoCallScreen(
                         Icon(Icons.Filled.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(7.dp))
                         Text("Switch to voice call", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                // Second, independent fallback row - see onOpenWhatsApp's
+                // own doc above for exactly when this is non-null. Kept as
+                // its own Row directly below rather than merged into one
+                // wide button, since the two can appear together (a call
+                // that couldn't reach this app's own directory has no
+                // reason voice AND WhatsApp couldn't both be offered) and
+                // each needs to stay independently tappable.
+                if (isFailureMessage && onOpenWhatsApp != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF25D366))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onOpenWhatsApp() }
+                            .padding(horizontal = 16.dp, vertical = 9.dp)
+                    ) {
+                        Icon(Icons.Filled.Videocam, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Video call via WhatsApp", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

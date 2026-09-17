@@ -23,6 +23,8 @@ import com.ashudialer.app.data.SignalingSession
 import com.ashudialer.app.ui.screens.VideoCallPhase
 import com.ashudialer.app.ui.screens.VideoCallScreen
 import com.ashudialer.app.ui.theme.AshuDialerTheme
+import com.ashudialer.app.util.isWhatsAppInstalled
+import com.ashudialer.app.util.openWhatsAppChat
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.webrtc.PeerConnection
@@ -137,6 +139,23 @@ class VideoCallActivity : ComponentActivity() {
             var remoteUidResolved by remember { mutableStateOf<String?>(null) }
             var callManager by remember { mutableStateOf<WebRtcCallManager?>(null) }
             var notSignedInMessage by remember { mutableStateOf<String?>(null) }
+            // True only for the one specific FAILED reason where offering
+            // a WhatsApp fallback actually makes sense - see
+            // onOpenWhatsApp's own doc in VideoCallScreen for why this is
+            // its own flag rather than reusing notSignedInMessage's mere
+            // non-null-ness: camera-permission-denied and not-signed-in
+            // also set notSignedInMessage to a non-null string, but a
+            // WhatsApp button on either of those screens would be a
+            // non-sequitur - neither has anything to do with the other
+            // person's number being unreachable.
+            var calleeNotFoundOnDirectory by remember { mutableStateOf(false) }
+            // Checked once per call, not re-checked reactively - whether
+            // WhatsApp is installed cannot meaningfully change in the
+            // middle of a single call screen's lifetime, and gates whether
+            // onOpenWhatsApp below is offered at all (see VideoCallScreen's
+            // own "don't show a button that can't do anything" rule,
+            // already followed by onSwitchToVoiceCall).
+            val whatsAppInstalled = remember { isWhatsAppInstalled(this@VideoCallActivity) }
             // Populated from the signaling session's callerNumber field,
             // but only relevant/used on the ROLE_CALLEE side - the
             // ROLE_CALLER side already knows who it's calling directly
@@ -270,6 +289,7 @@ class VideoCallActivity : ComponentActivity() {
 
                     if (role == ROLE_CALLER && resolvedRemoteUid == null) {
                         notSignedInMessage = "$displayName hasn't set up video calling yet."
+                        calleeNotFoundOnDirectory = true
                         phase = VideoCallPhase.FAILED
                         return@launch
                     }
@@ -504,6 +524,24 @@ class VideoCallActivity : ComponentActivity() {
                             finish()
                         }
                     },
+                    // See calleeNotFoundOnDirectory/isWhatsAppInstalled
+                    // above and onOpenWhatsApp's own doc in VideoCallScreen
+                    // for the three things all have to be true at once:
+                    // this failure is specifically "couldn't find them on
+                    // our own directory" (not e.g. a camera-permission
+                    // failure), WhatsApp is actually installed, and there's
+                    // an actual number to open a chat with. Tapping this
+                    // does NOT end the video call/signaling session the way
+                    // onSwitchToVoiceCall does above - there's nothing
+                    // running to tear down yet at this FAILED phase
+                    // (WebRtcCallManager was never even created - see the
+                    // early return right above the "hasn't set up video
+                    // calling yet" line this flag is set alongside), so
+                    // this can simply launch WhatsApp and leave this
+                    // Activity in place underneath it rather than finishing.
+                    onOpenWhatsApp = if (calleeNotFoundOnDirectory && whatsAppInstalled) {
+                        fallbackVoiceNumber?.let { number -> { openWhatsAppChat(this@VideoCallActivity, number) } }
+                    } else null,
                     isInPip = isInPipMode.value
                 )
             }

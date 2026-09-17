@@ -79,3 +79,24 @@ fun phoneNumbersMatch(a: String, b: String): Boolean {
     }
     return false
 }
+
+/**
+ * Formats [raw] as the digits-only, country-code-prefixed string WhatsApp's
+ * click-to-chat deep link (api.whatsapp.com/send?phone=...) requires - per
+ * WhatsApp's own documentation this must be the full international number
+ * with no "+", no spaces/dashes, and no leading trunk "0". Passing anything
+ * else (a bare local number, a "+", a leading 0) silently fails to resolve
+ * to a chat rather than erroring, so getting this formatting right here -
+ * once - matters more than it would for a normal display string.
+ *
+ * A bare 10-digit number, once any leading trunk "0" is stripped, is
+ * assumed to be an Indian mobile subscriber number missing its country
+ * code and gets "91" prepended - the same assumption phoneNumbersMatch
+ * above already makes (see its takeLast(10) comparison) for exactly the
+ * same class of number. Anything already longer than 10 digits is assumed
+ * to already carry its own country code and is left alone.
+ */
+fun formatForWhatsAppDeepLink(raw: String): String {
+    val digitsOnly = raw.filter { it.isDigit() }.removePrefix("0")
+    return if (digitsOnly.length == 10) "91$digitsOnly" else digitsOnly
+}
