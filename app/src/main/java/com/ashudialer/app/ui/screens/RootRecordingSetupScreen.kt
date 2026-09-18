@@ -46,6 +46,7 @@ import com.ashudialer.app.ui.components.glassCard
  * module installs the same signed root APK as a priv-app and allow-lists
  * CAPTURE_AUDIO_OUTPUT. The app then starts scrcpy-server directly through
  * `su`, so Shizuku is not required on the root build.
+ */
 @Composable
 fun RootRecordingSetupScreen(
     onBack: () -> Unit,
