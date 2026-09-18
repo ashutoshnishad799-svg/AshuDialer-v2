@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.RecordingSetupChecker
+import com.ashudialer.app.recording.RootScrcpyBackend
 import com.ashudialer.app.telecom.SetupCheckResult
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 import kotlinx.coroutines.Dispatchers
@@ -41,16 +42,10 @@ import kotlinx.coroutines.withContext
 import com.ashudialer.app.ui.components.glassCard
 
 /**
- * Root/Superuser access (su) alone does NOT unlock two-way call recording -
- * that's a common misunderstanding worth correcting up front. VOICE_CALL is
- * gated by the signature|privileged permission CAPTURE_AUDIO_OUTPUT, which
- * Android's audio policy service checks based on whether the app is
- * installed as a priv-app with that permission explicitly allow-listed -
- * not based on su/shell access. Having su lets someone install a system
- * app (which is what the Magisk module below does), but su by itself,
- * without becoming a priv-app, will not make VOICE_CALL work. This page
- * says that plainly rather than implying "grant root = done".
- */
+ * The root flavor now has a direct `su` recorder backend. The Magisk/KernelSU
+ * module installs the same signed root APK as a priv-app and allow-lists
+ * CAPTURE_AUDIO_OUTPUT. The app then starts scrcpy-server directly through
+ * `su`, so Shizuku is not required on the root build.
 @Composable
 fun RootRecordingSetupScreen(
     onBack: () -> Unit,
@@ -59,7 +54,9 @@ fun RootRecordingSetupScreen(
     val palette = LocalDialerPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val rootBackend = remember { RootScrcpyBackend(context) }
 
+    var isRootAvailable by remember { mutableStateOf(rootBackend.isRootAvailable()) }
     var isPrivApp by remember { mutableStateOf(RecordingSetupChecker.isRunningAsPrivApp(context)) }
     var voiceCallResult by remember { mutableStateOf<SetupCheckResult?>(null) }
     var isChecking by remember { mutableStateOf(false) }

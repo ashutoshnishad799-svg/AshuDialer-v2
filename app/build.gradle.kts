@@ -74,8 +74,12 @@ android {
         applicationId = "com.ashudialer.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.5.3"
+        versionCode = 10
+        versionName = "1.5.4"
+
+        buildConfigField("String", "SCRCPY_VERSION", "\"4.0\"")
+        buildConfigField("String", "SCRCPY_SERVER_SHA256", "\"84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a\"")
+        buildConfigField("String", "SCRCPY_SERVER_ASSET_NAME", "\"scrcpy-server\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -126,11 +130,13 @@ android {
     productFlavors {
         create("normal") {
             dimension = "distribution"
-            buildConfigField("boolean", "CALL_RECORDING_ENABLED", "false")
+            buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
+            buildConfigField("boolean", "CALL_RECORDING_USE_ROOT", "false")
         }
         create("root") {
             dimension = "distribution"
             buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
+            buildConfigField("boolean", "CALL_RECORDING_USE_ROOT", "true")
         }
     }
 
@@ -215,6 +221,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        aidl = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
@@ -251,6 +258,8 @@ android {
 
 dependencies {
 
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")

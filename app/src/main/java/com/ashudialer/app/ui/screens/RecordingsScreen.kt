@@ -46,6 +46,8 @@ import androidx.compose.ui.draw.clip
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import com.ashudialer.app.BuildConfig
+import com.ashudialer.app.recording.integrations.shizuku.ShizukuConnectionManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -134,6 +136,43 @@ fun RecordingsScreen(
                     "Only hearing one side of the call in recordings? Tap to see why, and real ways to fix it.",
                     fontSize = 12.5.sp, color = palette.textPrimary, modifier = Modifier.weight(1f)
                 )
+            }
+            Spacer(Modifier.height(10.dp))
+
+            val shizukuReady = remember {
+                ShizukuConnectionManager.isAvailable() && ShizukuConnectionManager.hasPermission(LocalContext.current)
+            }
+            val engineReady = BuildConfig.CALL_RECORDING_USE_ROOT || shizukuReady
+            val engineTitle = when {
+                BuildConfig.CALL_RECORDING_USE_ROOT -> "Direct Root recorder"
+                shizukuReady -> "Shizuku recorder ready"
+                else -> "Recording engine setup"
+            }
+            val engineSubtitle = when {
+                BuildConfig.CALL_RECORDING_USE_ROOT -> "AAC / M4A • direct su capture • Shizuku is not required"
+                shizukuReady -> "AAC / M4A • elevated voice-call capture is ready"
+                else -> "Open Recording setup to start the elevated recorder"
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                     .background(palette.cardBackground)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    if (engineReady) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (engineReady) palette.accent else palette.textSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(engineTitle, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                    Spacer(Modifier.height(2.dp))
+                    Text(engineSubtitle, fontSize = 11.5.sp, color = palette.textSecondary, lineHeight = 15.sp)
+                }
             }
             Spacer(Modifier.height(12.dp))
         }
