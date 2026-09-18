@@ -351,7 +351,7 @@ class PixelInCallService : InCallService() {
                     requestedProfile: android.telecom.VideoProfile?,
                     responseProfile: android.telecom.VideoProfile?
                 ) {
-                    val granted = status == android.telecom.VideoProfile.SESSION_MODIFICATION_REQUEST_SUCCESS &&
+                    val granted = status == android.telecom.Connection.VideoProvider.SESSION_MODIFY_REQUEST_SUCCESS &&
                         responseProfile != null &&
                         android.telecom.VideoProfile.isBidirectional(responseProfile.videoState)
                     _nativeVideoUpgradeActive.value = granted
