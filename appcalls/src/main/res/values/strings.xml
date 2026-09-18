@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appcalls_notification_listener_label">WhatsApp/Telegram call detection</string>
+</resources>

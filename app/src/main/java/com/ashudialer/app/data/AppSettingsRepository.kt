@@ -22,6 +22,14 @@ data class AppSettings(
     val announceRecording: Boolean = false,
     val cloudBackupEnabled: Boolean = false,
 
+    // Sub-toggles under callRecordingEnabled, for WhatsApp/Telegram VoIP call recording
+    // specifically (see AppCallNotificationListenerService in the :appcalls module). Off by
+    // default even once callRecordingEnabled is on: this path needs its own Shizuku grant and a
+    // separate Notification Access permission, so it shouldn't silently activate the first time
+    // someone turns on native call recording.
+    val recordWhatsAppCallsEnabled: Boolean = false,
+    val recordTelegramCallsEnabled: Boolean = false,
+
     val myPhoneNumber: String = "",
 
 
@@ -68,6 +76,8 @@ class AppSettingsRepository(private val context: Context) {
     private val keyAutoRecordAll = booleanPreferencesKey("auto_record_all")
     private val keyAnnounceRecording = booleanPreferencesKey("announce_recording")
     private val keyCloudBackup = booleanPreferencesKey("cloud_backup_enabled")
+    private val keyRecordWhatsAppCalls = booleanPreferencesKey("record_whatsapp_calls_enabled")
+    private val keyRecordTelegramCalls = booleanPreferencesKey("record_telegram_calls_enabled")
     private val keyMyPhoneNumber = stringPreferencesKey("my_phone_number")
     private val keyLedFlash = booleanPreferencesKey("led_flash_for_alerts")
     private val keySpamProtection = booleanPreferencesKey("spam_protection_enabled")
@@ -91,6 +101,8 @@ class AppSettingsRepository(private val context: Context) {
             autoRecordAll = prefs[keyAutoRecordAll] ?: false,
             announceRecording = prefs[keyAnnounceRecording] ?: false,
             cloudBackupEnabled = prefs[keyCloudBackup] ?: false,
+            recordWhatsAppCallsEnabled = prefs[keyRecordWhatsAppCalls] ?: false,
+            recordTelegramCallsEnabled = prefs[keyRecordTelegramCalls] ?: false,
             myPhoneNumber = prefs[keyMyPhoneNumber] ?: "",
             ledFlashForAlerts = prefs[keyLedFlash] ?: false,
             spamProtectionEnabled = prefs[keySpamProtection] ?: true,
@@ -112,6 +124,14 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setCallRecordingEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyCallRecording] = enabled }
+    }
+
+    suspend fun setRecordWhatsAppCallsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyRecordWhatsAppCalls] = enabled }
+    }
+
+    suspend fun setRecordTelegramCallsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyRecordTelegramCalls] = enabled }
     }
 
     suspend fun setAutoRecordAll(enabled: Boolean) {

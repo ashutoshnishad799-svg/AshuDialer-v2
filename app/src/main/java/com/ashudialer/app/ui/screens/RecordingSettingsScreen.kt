@@ -47,6 +47,7 @@ fun RecordingSettingsScreen(
     onOpenRootSetup: () -> Unit,
     onOpenAccessibilitySetup: () -> Unit,
     onOpenAdbSetup: () -> Unit,
+    onOpenAppCallsSetup: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -117,6 +118,26 @@ fun RecordingSettingsScreen(
                     onClick = onOpenRootSetup
                 )
                 Spacer(Modifier.height(12.dp))
+            }
+
+            // WhatsApp/Telegram call recording is a separate capability from the root/no-root
+            // branching below: it always needs Shizuku (see AppCallRecordingSetupScreen's own
+            // doc comment - a VoIP call has no modem-level tap the priv-app/VOICE_CALL route
+            // could read even with root), so it's shown unconditionally rather than nested
+            // inside the "no root" vs "root already active" split that only concerns native
+            // phone-call recording.
+            item {
+                val notificationAccessGranted = remember { RecordingSetupChecker.isAppCallNotificationAccessGranted(context) }
+                MethodNavRow(
+                    icon = Icons.Filled.Person,
+                    title = "WhatsApp / Telegram calls",
+                    subtitle = "Record VoIP calls from these apps - needs Shizuku either way.",
+                    statusLabel = if (shizukuInstalled && notificationAccessGranted) "Ready" else "Setup needed",
+                    statusGood = shizukuInstalled && notificationAccessGranted,
+                    palette = palette,
+                    onClick = onOpenAppCallsSetup
+                )
+                Spacer(Modifier.height(28.dp))
             }
 
             // Root already active (the priv-app module is genuinely

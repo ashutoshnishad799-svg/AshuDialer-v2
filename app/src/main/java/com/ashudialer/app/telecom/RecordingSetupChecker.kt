@@ -284,4 +284,23 @@ object RecordingSetupChecker {
 
     fun isAccessibilityServiceEnabled(context: Context): Boolean =
         OemPermissionHelper.isAccessibilityServiceEnabled(context)
+
+    /**
+     * Whether the person has granted this app Notification Access (Settings > Notification
+     * access), which AppCallNotificationListenerService (in the :appcalls module) needs to
+     * detect WhatsApp/Telegram calls - a separate system permission from Shizuku, since one
+     * grants shell-level audio capture and the other only lets the app read notification
+     * content. isNotificationListenerAccessGranted is the real system API for this (added API
+     * 27), rather than parsing the enabled_notification_listeners Settings.Secure string by
+     * hand, which is the older/deprecated way of checking the same thing.
+     */
+    fun isAppCallNotificationAccessGranted(context: Context): Boolean {
+        return try {
+            val notificationManager = context.getSystemService(android.app.NotificationManager::class.java)
+            val component = android.content.ComponentName(context, "com.ashudialer.app.appcalls.AppCallNotificationListenerService")
+            notificationManager?.isNotificationListenerAccessGranted(component) ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
 }

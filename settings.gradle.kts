@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "AshuPhone"
 include(":app")
+include(":appcalls")

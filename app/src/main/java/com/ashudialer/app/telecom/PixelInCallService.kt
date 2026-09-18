@@ -336,9 +336,9 @@ class PixelInCallService : InCallService() {
                 // would genuinely become bidirectional video at the
                 // network level with no UI ever reflecting it.
                 //
-                // status is one of VideoProfile.SessionModificationState's
-                // constants; only SUCCESS means the request was actually
-                // granted. Checking responseProfile's own videoState as
+                // status is one of VideoProfile's SESSION_MODIFICATION_STATE_*
+                // constants; only SESSION_MODIFICATION_STATE_SUCCESS means the
+                // request was actually granted. Checking responseProfile's own videoState as
                 // well (not just status) matches what the AOSP Dialer's
                 // own VideoCallPresenter does - a carrier can in principle
                 // report SUCCESS while still only granting a narrower
@@ -351,7 +351,7 @@ class PixelInCallService : InCallService() {
                     requestedProfile: android.telecom.VideoProfile?,
                     responseProfile: android.telecom.VideoProfile?
                 ) {
-                    val granted = status == android.telecom.VideoProfile.SESSION_MODIFY_REQUEST_SUCCESS &&
+                    val granted = status == android.telecom.VideoProfile.SESSION_MODIFICATION_STATE_SUCCESS &&
                         responseProfile != null &&
                         android.telecom.VideoProfile.isBidirectional(responseProfile.videoState)
                     _nativeVideoUpgradeActive.value = granted

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Needed by Shizuku's own binder/permission model for this module's Shizuku calls. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <application>
+        <!--
+            Requires the user to grant Settings > Notification access to this app. Confirmed
+            against the official NotificationListenerService reference doc: the permission and
+            intent-filter action below must match exactly or the system will not bind this
+            service, even if notification access is granted in Settings.
+        -->
+        <service
+            android:name="com.ashudialer.app.appcalls.AppCallNotificationListenerService"
+            android:label="@string/appcalls_notification_listener_label"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

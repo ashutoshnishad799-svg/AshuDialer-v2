@@ -68,7 +68,7 @@ import com.ashudialer.app.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, INCOMING_CALL_STYLE }
+private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, RECORDING_APP_CALLS_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, INCOMING_CALL_STYLE }
 
 // THE FIX for the Modules/Root-setup screen "freezing" after tapping
 // "Open Magisk" and coming back: overlay used to be plain `remember`,
@@ -657,40 +657,8 @@ class MainActivity : ComponentActivity() {
             // single implementation VideoCallActivity's fallback also uses.
             fun openWhatsApp(number: String) = openWhatsAppChat(context, number)
 
-            fun recordingUri(file: java.io.File): Uri {
-                // Android 10+ recordings are written through MediaStore, so the
-                // synthetic File path returned by CallRecorder is not necessarily
-                // readable by FileProvider. Resolve the real MediaStore row first.
-                try {
-                    val collection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    } else {
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                    }
-                    val projection = arrayOf(MediaStore.Audio.Media._ID)
-                    val selection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} = ?"
-                    } else {
-                        "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
-                    }
-                    val args = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        arrayOf(file.name, "Music/Ashu Dialer/")
-                    } else {
-                        arrayOf(file.name)
-                    }
-                    var resolved: Uri? = null
-                    context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
-                        if (cursor.moveToFirst()) {
-                            val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
-                            resolved = android.content.ContentUris.withAppendedId(collection, id)
-                        }
-                    }
-                    if (resolved != null) return resolved!!
-                } catch (_: Throwable) {
-                    // Fall through to FileProvider for legacy/private recordings.
-                }
-                return androidx.core.content.FileProvider.getUriForFile(context, "com.ashudialer.app.fileprovider", file)
-            }
+            fun recordingUri(file: java.io.File): Uri =
+                androidx.core.content.FileProvider.getUriForFile(context, "com.ashudialer.app.fileprovider", file)
 
             fun playRecording(file: java.io.File) {
                 if (!com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED) return
@@ -1533,6 +1501,7 @@ class MainActivity : ComponentActivity() {
                                             onOpenRootSetup = { overlay = OverlayScreen.RECORDING_ROOT_SETUP },
                                             onOpenAccessibilitySetup = { overlay = OverlayScreen.RECORDING_ACCESSIBILITY_SETUP },
                                             onOpenAdbSetup = { overlay = OverlayScreen.RECORDING_ADB_SETUP },
+                                            onOpenAppCallsSetup = { overlay = OverlayScreen.RECORDING_APP_CALLS_SETUP },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_ROOT_SETUP -> com.ashudialer.app.ui.screens.RootRecordingSetupScreen(
@@ -1544,6 +1513,10 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_ADB_SETUP -> com.ashudialer.app.ui.screens.AdbRecordingSetupScreen(
+                                            onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        OverlayScreen.RECORDING_APP_CALLS_SETUP -> com.ashudialer.app.ui.screens.AppCallRecordingSetupScreen(
                                             onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
                                             modifier = Modifier.fillMaxSize()
                                         )

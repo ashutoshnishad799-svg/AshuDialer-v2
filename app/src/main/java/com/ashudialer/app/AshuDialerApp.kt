@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 
-class AshuDialerApp : Application() {
+class AshuDialerApp : Application(), com.ashudialer.app.appcalls.AppCallsHost {
 
     /**
      * A CoroutineScope that lives as long as the process, not tied to any single
@@ -144,7 +144,22 @@ class AshuDialerApp : Application() {
             }
         }
 
+        // Registers this app as the AppCallsHost the :appcalls module's notification listener
+        // service reaches through - see AppCallsHost's own doc comment for why this indirection
+        // exists (breaking what would otherwise be a circular Gradle module dependency).
+        com.ashudialer.app.appcalls.AppCallsHost.register(this)
+
         watchVideoCallingAvailability()
+    }
+
+    /** AppCallsHost implementation - see that interface's doc comment for why this exists. */
+    override suspend fun isAppCallRecordingEnabled(target: com.ashudialer.app.appcalls.AppCallTarget): Boolean {
+        val settings = appSettingsRepository.settingsFlow.first()
+        if (!settings.callRecordingEnabled) return false
+        return when (target) {
+            com.ashudialer.app.appcalls.AppCallTarget.WHATSAPP -> settings.recordWhatsAppCallsEnabled
+            com.ashudialer.app.appcalls.AppCallTarget.TELEGRAM -> settings.recordTelegramCallsEnabled
+        }
     }
 
     /**
