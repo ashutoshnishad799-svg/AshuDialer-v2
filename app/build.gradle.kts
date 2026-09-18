@@ -117,12 +117,12 @@ android {
         // sourced from those dropped resources to begin with.
         resourceConfigurations += listOf("en")
 
+        buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
         }
     }
 
-    buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
 
     signingConfigs {
         create("release") {
