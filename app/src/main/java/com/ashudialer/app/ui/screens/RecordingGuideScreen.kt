@@ -44,7 +44,7 @@ fun RecordingGuideScreen(
                 Spacer(Modifier.height(12.dp))
             }
             item {
-                GuideCard("2 — Authorize Ashu Dialer", "Open Shizuku → Authorized applications → Ashu Dialer → Allow. The Recording screen also checks whether Shizuku exposes system audio capture (CAPTURE_AUDIO_OUTPUT), because the scrcpy VOICE_CALL/OUTPUT pipeline needs that system-level capability.", palette)
+                GuideCard("2 — Authorize Ashu Dialer", "Open Shizuku → Authorized applications → Ashu Dialer → Allow. Shizuku authorization is the setup prerequisite. Android treats CAPTURE_AUDIO_OUTPUT as a privileged system permission, so the selected scrcpy audio source is tested when recording actually starts.", palette)
                 Spacer(Modifier.height(12.dp))
             }
             item {

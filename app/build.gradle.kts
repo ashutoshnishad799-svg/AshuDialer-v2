@@ -80,8 +80,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
 
-        buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
-
         // SIZE FIX (without removing any feature): this app is distributed
         // as a plain .apk built via `assembleRelease` (see
         // .github/workflows/build.yml - NOT an .aab/App Bundle, which
@@ -124,7 +122,8 @@ android {
         }
     }
 
-    
+    buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
+
     signingConfigs {
         create("release") {
             // Values come from gradle.properties (local dev) or from

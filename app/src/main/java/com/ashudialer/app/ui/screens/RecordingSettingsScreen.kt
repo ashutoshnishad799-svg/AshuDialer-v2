@@ -128,7 +128,7 @@ fun RecordingSettingsScreen(
                     Spacer(Modifier.height(7.dp))
                     SetupStatusRow(shizukuAuthorized, "Ashu Dialer authorized", "Allow Ashu Dialer in Shizuku → Authorized applications", palette)
                     Spacer(Modifier.height(7.dp))
-                    SetupStatusRow(shizukuAudioCapture, "System audio capture available", "Shizuku does not currently expose CAPTURE_AUDIO_OUTPUT to the recorder", palette)
+                    SetupStatusRow(shizukuAudioCapture, "Shizuku recording bridge ready", "Authorize Ashu Dialer in Shizuku first", palette)
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = onOpenShizukuSetup, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(17.dp))

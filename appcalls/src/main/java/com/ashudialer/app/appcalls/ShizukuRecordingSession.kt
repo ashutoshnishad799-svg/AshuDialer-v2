@@ -58,8 +58,10 @@ class ShizukuRecordingSession(private val context: Context) {
 
     companion object {
         fun isReady(context: Context): Boolean =
+            // Shizuku authorization is the setup prerequisite. The Android
+            // CAPTURE_AUDIO_OUTPUT privilege is separate and may not be exposed
+            // by the shell UID; the scrcpy audio source is tested on start.
             ShizukuConnectionManager.isAvailable() &&
-                ShizukuConnectionManager.hasPermission(context) &&
-                ShizukuConnectionManager.checkServerPermission(android.Manifest.permission.CAPTURE_AUDIO_OUTPUT)
+                ShizukuConnectionManager.hasPermission(context)
     }
 }

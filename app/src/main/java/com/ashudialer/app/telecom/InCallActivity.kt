@@ -1,8 +1,5 @@
 package com.ashudialer.app.telecom
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import android.Manifest
 import android.app.KeyguardManager
 import android.content.Intent

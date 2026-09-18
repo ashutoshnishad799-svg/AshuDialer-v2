@@ -755,9 +755,9 @@ private fun RecordingWaveformBar(seconds: Int, mode: RecordingMode?, looksSilent
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
             )
-        } else if (mode == RecordingMode.VOICE_COMMUNICATION) {
+        } else if (mode == RecordingMode.VOICE_UPLINK || mode == RecordingMode.VOICE_DOWNLINK) {
             Text(
-                text = "Recording via communication audio",
+                text = "Recording one call direction",
                 color = Color.Black.copy(alpha = 0.55f),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Medium,

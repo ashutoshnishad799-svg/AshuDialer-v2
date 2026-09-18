@@ -118,7 +118,14 @@ fun ShizukuRecordingSetupScreen(
                     Spacer(Modifier.height(8.dp))
                     StatusLine(authorized, "Ashu Dialer is authorized", "Authorize Ashu Dialer", palette)
                     Spacer(Modifier.height(8.dp))
-                    StatusLine(audioCapture, "System audio capture is available", "System audio capture is not available to Shizuku yet", palette)
+                    StatusLine(audioCapture, "Shizuku recording bridge is ready", "Authorize Ashu Dialer in Shizuku first", palette)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Note: Android's CAPTURE_AUDIO_OUTPUT is a privileged system permission. Shizuku authorization does not grant it automatically; the selected recording source is tested when recording starts.",
+                        fontSize = 11.5.sp,
+                        color = palette.textSecondary,
+                        lineHeight = 17.sp
+                    )
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(onClick = { openShizuku() }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(17.dp))
@@ -188,8 +195,8 @@ fun ShizukuRecordingSetupScreen(
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        if (installed && running && authorized && audioCapture) "Shizuku is ready. Phone-call recording can now start from the normal APK."
-                        else "Finish the steps above. If the audio-capture row stays red on your ROM, start Shizuku using its root-start method; the APK itself still uses no root module.",
+                        if (installed && running && authorized && audioCapture) "Shizuku is ready. The recording engine will test the selected audio source when recording starts."
+                        else "Finish the steps above. Ashu Dialer uses Shizuku authorization only; it does not require a root or Magisk module.",
                         fontSize = 12.5.sp,
                         color = palette.textPrimary,
                         lineHeight = 18.sp

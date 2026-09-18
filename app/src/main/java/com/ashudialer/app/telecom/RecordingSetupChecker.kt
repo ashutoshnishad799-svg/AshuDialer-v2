@@ -22,11 +22,17 @@ object RecordingSetupChecker {
 
     fun hasShizukuPermission(): Boolean = ShizukuConnectionManager.hasPermission()
 
+    /**
+     * Shizuku authorization is the setup prerequisite we can verify here.
+     * CAPTURE_AUDIO_OUTPUT is a privileged Android permission and is not granted
+     * merely by authorizing Ashu Dialer in Shizuku. The actual audio source is
+     * therefore validated when the recording pipeline starts.
+     */
     fun hasShizukuAudioCapturePermission(): Boolean =
-        isShizukuRunning() && ShizukuConnectionManager.checkServerPermission(android.Manifest.permission.CAPTURE_AUDIO_OUTPUT)
+        isShizukuRunning() && hasShizukuPermission()
 
     fun isShizukuReady(): Boolean =
-        isShizukuRunning() && hasShizukuPermission() && hasShizukuAudioCapturePermission()
+        isShizukuRunning() && hasShizukuPermission()
 
     fun isAppCallNotificationAccessGranted(context: Context): Boolean = try {
         val notificationManager = context.getSystemService(NotificationManager::class.java)
