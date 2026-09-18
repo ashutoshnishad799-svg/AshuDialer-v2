@@ -37,8 +37,12 @@ class AshuDialerApp : Application(), com.ashudialer.app.appcalls.AppCallsHost {
      * or logging/placing a call while the UI is mid-recomposition) should launch
      * on this scope instead of an Activity's lifecycleScope, which cancels
      * in-flight work as soon as that Activity finishes.
+     *
+     * Also satisfies AppCallsHost.applicationScope (see that interface's doc comment) -
+     * override is required here even though the name/type already match exactly, since
+     * Kotlin does not auto-detect structural matches to an interface member.
      */
-    val applicationScope = CoroutineScope(SupervisorJob())
+    override val applicationScope = CoroutineScope(SupervisorJob())
 
     lateinit var database: AshuDialerDatabase
         private set

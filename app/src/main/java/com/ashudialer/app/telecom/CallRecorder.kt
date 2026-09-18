@@ -267,6 +267,11 @@ class CallRecorder(private val context: Context) {
         RecordingMode.VOICE_UPLINK_DOWNLINK -> MediaRecorder.AudioSource.VOICE_UPLINK
         RecordingMode.VOICE_COMMUNICATION -> MediaRecorder.AudioSource.VOICE_DOWNLINK
         RecordingMode.MICROPHONE -> MediaRecorder.AudioSource.MIC
+        // APP_CALL recordings (WhatsApp/Telegram, via the :appcalls module) never go through
+        // this file's MediaRecorder or silent-source-tracking system at all - that whole
+        // mechanism is specific to native telephony AudioSource values. No mapping applies,
+        // same as FAILED.
+        RecordingMode.APP_CALL -> null
         RecordingMode.FAILED -> null
     }
 
