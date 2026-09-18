@@ -1,16 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Privileged-permission allowlist for Ashu Phone when installed as a
+    priv-app via this Magisk module.
+
+    CAPTURE_AUDIO_OUTPUT is the specific signature|privileged permission
+    Android's audio policy service checks before allowing
+    MediaRecorder.AudioSource.VOICE_CALL, VOICE_UPLINK, or VOICE_DOWNLINK
+    to open (confirmed against BCR's own README, a call recorder proven
+    to get two-way call-audio capture working on real rooted devices -
+    BCR documents this single permission as gating all three of those
+    AudioSource values, not just VOICE_CALL alone).
+
+    READ_LOGS is also allowlisted here, matching SKVALEX's (a second,
+    independently working rooted call recorder) own privapp-permissions
+    XML, which requests exactly these same two permissions and nothing
+    else for call recording to work.
+
+    Both permissions only take effect if the app's own manifest also
+    requests them via <uses-permission> - an allowlist entry alone grants
+    nothing to an app that never asked for the permission in the first
+    place.
+-->
 <permissions>
     <privapp-permissions package="com.ashudialer.app">
-        <!-- Allows native call recording without mic limitations -->
-        <permission name="android.permission.CAPTURE_AUDIO_OUTPUT"/>
-        
-        <!-- Allows ViLTE and Telecom modifications -->
-        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
-        <permission name="android.permission.MODIFY_PHONE_STATE"/>
-        <permission name="android.permission.REGISTER_CALL_PROVIDER"/>
-        <permission name="android.permission.CONTROL_INCALL_EXPERIENCE"/>
-        <permission name="android.permission.CALL_PRIVILEGED"/>
-        <permission name="android.permission.INTERACT_ACROSS_USERS"/>
-        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+        <permission name="android.permission.CAPTURE_AUDIO_OUTPUT" />
+        <permission name="android.permission.READ_LOGS" />
     </privapp-permissions>
 </permissions>

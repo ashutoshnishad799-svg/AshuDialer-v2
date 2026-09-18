@@ -66,6 +66,31 @@ class PixelInCallService : InCallService() {
         private val _isMuted = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isMutedFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isMuted
 
+        /**
+         * True once this call has genuinely become a bidirectional native
+         * (carrier ViLTE/VoLTE) video call - i.e. Telecom's own
+         * VideoCall.Callback has told this app, one way or another, that
+         * video is actually flowing, not merely that a request was sent.
+         * Two separate call sites set this true, matching the two ways a
+         * call can end up in bidirectional video (see onVideoCallChanged's
+         * own doc comment below for the same split): onSessionModifyRequestReceived
+         * when the OTHER party requested the upgrade and this app just
+         * auto-accepted it, and onSessionModifyResponseReceived when THIS
+         * device's own outgoing request (sent from InCallActivity's
+         * onUpgradeToNativeVideo) comes back approved. InCallActivity
+         * collects this the same way it already collects isMutedFlow/
+         * currentAudioRouteFlow above, and uses it - together with the
+         * Call.videoCall reference InCallActivity already holds directly -
+         * to decide when to swap CallScreen's normal audio UI for
+         * NativeVideoCallScreen's live TextureView surfaces. This flag
+         * only ever reflects "is native video active right now"; it is not
+         * a request/pending state, so a rejected or not-yet-answered
+         * upgrade request correctly leaves it false rather than needing a
+         * separate branch to unset a "pending" value.
+         */
+        private val _nativeVideoUpgradeActive = kotlinx.coroutines.flow.MutableStateFlow(false)
+        val nativeVideoUpgradeActiveFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _nativeVideoUpgradeActive
+
 
         /**
          * Pick the call that should be represented by the foreground in-call UI.
@@ -164,6 +189,7 @@ class PixelInCallService : InCallService() {
         _currentAudioRoute.value = AudioRoute.EARPIECE
         _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
         _isMuted.value = false
+        _nativeVideoUpgradeActive.value = false
         PixelInCallService.callAudioState = null
         resolvedContactNames.clear()
         loggedAsMissed.clear()
@@ -275,18 +301,60 @@ class PixelInCallService : InCallService() {
                     // never calling sendSessionModifyResponse) is required
                     // by the platform - the requester's side is left
                     // waiting until this is called, one way or another.
-                    runCatching {
+                    val accepted = runCatching {
                         videoCall.sendSessionModifyResponse(
                             android.telecom.VideoProfile(android.telecom.VideoProfile.STATE_BIDIRECTIONAL)
                         )
+                    }.isSuccess
+                    // Flips nativeVideoUpgradeActiveFlow the moment this
+                    // app agrees to the upgrade, not on some later,
+                    // separate confirmation - there is no further
+                    // "did the other side see my response" callback to
+                    // wait for on this incoming-request path (compare
+                    // onSessionModifyResponseReceived below, which DOES
+                    // wait for a real response, because there this device
+                    // is the one that asked and genuinely doesn't know
+                    // the answer yet).
+                    if (accepted) {
+                        _nativeVideoUpgradeActive.value = true
                     }
                 }
 
+                // DEEP FIX (native/VoLTE video calling, the missing half
+                // called out in InCallActivity's onUpgradeToNativeVideo
+                // doc comment: "rendering the two live video surfaces...
+                // is a separate, larger UI surface of its own - not yet
+                // built here"). This callback is Telecom's answer to
+                // *this device's own* sendSessionModifyRequest call - it
+                // fires once (accepted, rejected, or timed out/failed),
+                // and is the only reliable signal that the upgrade this
+                // app asked for actually went through, as opposed to the
+                // request merely having been sent. Before this, the
+                // callback body was empty, so tapping "Switch to video
+                // call" would successfully ask the carrier to upgrade and
+                // then never do anything with the answer - the call
+                // would genuinely become bidirectional video at the
+                // network level with no UI ever reflecting it.
+                //
+                // status is one of VideoProfile.SessionModificationState's
+                // constants; only SUCCESS means the request was actually
+                // granted. Checking responseProfile's own videoState as
+                // well (not just status) matches what the AOSP Dialer's
+                // own VideoCallPresenter does - a carrier can in principle
+                // report SUCCESS while still only granting a narrower
+                // video state (e.g. one-way) than what was requested, and
+                // isBidirectional on the actual granted profile is the
+                // correct thing to gate a bidirectional-video UI on, not
+                // the mere presence of a success status.
                 override fun onSessionModifyResponseReceived(
                     status: Int,
                     requestedProfile: android.telecom.VideoProfile?,
                     responseProfile: android.telecom.VideoProfile?
                 ) {
+                    val granted = status == android.telecom.VideoProfile.SessionModificationState.SUCCESS &&
+                        responseProfile != null &&
+                        android.telecom.VideoProfile.isBidirectional(responseProfile.videoState)
+                    _nativeVideoUpgradeActive.value = granted
                 }
 
                 override fun onCallSessionEvent(event: Int) {}
@@ -341,6 +409,7 @@ class PixelInCallService : InCallService() {
             _currentAudioRoute.value = AudioRoute.EARPIECE
             _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
             _isMuted.value = false
+            _nativeVideoUpgradeActive.value = false
             CallNotificationHelper.clear(applicationContext)
         }
         callKey(call)?.let {

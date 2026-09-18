@@ -1,7 +1,9 @@
 package com.ashudialer.app.telecom
 
+import android.Manifest
 import android.app.KeyguardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -9,8 +11,10 @@ import android.telecom.Call
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.core.content.ContextCompat
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +39,7 @@ import com.ashudialer.app.data.AppSettings
 import com.ashudialer.app.data.db.CallDirection
 import com.ashudialer.app.ui.screens.CallScreen
 import com.ashudialer.app.ui.screens.IncomingCallScreen
+import com.ashudialer.app.ui.screens.NativeVideoCallScreen
 import com.ashudialer.app.ui.theme.AshuDialerTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -283,6 +289,35 @@ class InCallActivity : ComponentActivity() {
             // callback (that race was the actual cause of the two
             // buttons visibly falling out of sync with each other).
             val isMuted by PixelInCallService.isMutedFlow.collectAsState()
+            // See NativeVideoCallScreen's own doc comment for what this
+            // actually renders once true, and onUpgradeToNativeVideo's doc
+            // comment (below, in this same file) for the request that
+            // sets it. Camera permission for the screen this drives is
+            // requested just below, the same registerForActivityResult
+            // pattern VideoCallActivity already uses for its own (separate,
+            // WebRTC) camera permission - this app already asks for camera
+            // access before recording video anywhere, so this isn't a new
+            // category of permission prompt for the person to have never
+            // seen before.
+            val nativeVideoActive by PixelInCallService.nativeVideoUpgradeActiveFlow.collectAsState()
+            var nativeVideoCameraPermission by remember {
+                mutableStateOf<Boolean?>(
+                    if (ContextCompat.checkSelfPermission(this@InCallActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) true else null
+                )
+            }
+            val requestNativeVideoCameraPermission = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted -> nativeVideoCameraPermission = granted }
+            // Only actually prompts once the upgrade has genuinely
+            // succeeded (nativeVideoActive true) rather than pre-emptively
+            // on every call - most calls never become video calls, so
+            // asking every time would be a permission prompt for a
+            // capability most calls never use.
+            LaunchedEffect(nativeVideoActive) {
+                if (nativeVideoActive && nativeVideoCameraPermission == null) {
+                    requestNativeVideoCameraPermission.launch(Manifest.permission.CAMERA)
+                }
+            }
 
 
             val dtmfPlayer = remember { DtmfPlayer() }
@@ -786,6 +821,38 @@ class InCallActivity : ComponentActivity() {
                             )
                         }
                         else -> {
+                            // NativeVideoCallScreen only once the upgrade
+                            // has actually succeeded (nativeVideoActive -
+                            // never on a merely-requested-but-not-yet-
+                            // answered upgrade), Telecom has genuinely
+                            // attached a VideoCall to this call, and camera
+                            // permission is granted. Any one of those being
+                            // false falls back to the normal CallScreen -
+                            // including "permission not granted yet/denied",
+                            // which correctly leaves the call as a normal
+                            // audio call in this app's own UI even though
+                            // it may already be bidirectional video at the
+                            // network level, rather than showing a video
+                            // screen with no camera feed. current.videoCall
+                            // itself (not just nativeVideoActive) is
+                            // checked here because the two are set by
+                            // different callbacks arriving through
+                            // different objects (PixelInCallService's
+                            // static flow vs. this Call's own videoCall
+                            // property) - both being ready is what this
+                            // screen actually needs.
+                            val nativeVideoCall = current.videoCall
+                            if (nativeVideoActive && nativeVideoCall != null && nativeVideoCameraPermission == true) {
+                                NativeVideoCallScreen(
+                                    videoCall = nativeVideoCall,
+                                    callerName = displayName,
+                                    isConnected = callState == Call.STATE_ACTIVE,
+                                    onEndCall = {
+                                        isEndingCall = true
+                                        runCatching { current.disconnect() }
+                                    }
+                                )
+                            } else {
                             CallScreen(
                                 callerName = displayName,
                                 callerNumber = number,
@@ -964,6 +1031,7 @@ class InCallActivity : ComponentActivity() {
                                     closeCallUiImmediately()
                                 }
                             )
+                            }
 
                             if (showNoteDialog) {
                                 com.ashudialer.app.ui.components.InCallNoteDialog(
