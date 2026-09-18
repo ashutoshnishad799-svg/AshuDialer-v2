@@ -89,7 +89,7 @@ class AppCallNotificationListenerService : NotificationListenerService() {
 
         val callerLabel = extractCallerLabel(sbn.notification) ?: target.displayName
         AppCallsLogger.i(TAG, "Detected ongoing ${target.key} call (notification key=${sbn.key}). Starting recording.")
-        startRecording(target, callerLabel)
+        startRecording(sbn.key, target, callerLabel)
     }
 
     private fun isTargetEnabled(target: AppCallTarget): Boolean {
@@ -118,8 +118,11 @@ class AppCallNotificationListenerService : NotificationListenerService() {
     private fun extractCallerLabel(notification: Notification): String? =
         notification.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()?.takeIf { it.isNotBlank() }
 
-    private fun startRecording(target: AppCallTarget, callerLabel: String) {
-        val host = AppCallsHost.current ?: return
+    private fun startRecording(notificationKey: String, target: AppCallTarget, callerLabel: String) {
+        val host = AppCallsHost.current ?: run {
+            activeCalls.remove(notificationKey, target)
+            return
+        }
         if (engine?.isActive == true) {
             AppCallsLogger.w(TAG, "startRecording() called while already recording - ignoring")
             return
@@ -136,8 +139,12 @@ class AppCallNotificationListenerService : NotificationListenerService() {
 
         host.applicationScope.launch {
             try {
-                if (!ShizukuConnectionManager.isAvailable() || !ShizukuConnectionManager.hasPermission(applicationContext)) {
+                if (!ShizukuConnectionManager.isAvailable() ||
+                    !ShizukuConnectionManager.hasPermission(applicationContext) ||
+                    !ShizukuConnectionManager.checkServerPermission(android.Manifest.permission.CAPTURE_AUDIO_OUTPUT)
+                ) {
                     AppCallsLogger.w(TAG, "Shizuku not available or permission not granted - cannot record this ${target.key} call")
+                    activeCalls.remove(notificationKey, target)
                     return@launch
                 }
                 val shellService = manager.getShellService()
@@ -154,6 +161,7 @@ class AppCallNotificationListenerService : NotificationListenerService() {
                 AppCallsLogger.e(TAG, "Failed to start app-call recording: ${e.message}", e)
                 engine = null
                 shizukuManager = null
+                activeCalls.remove(notificationKey, target)
             }
         }
     }

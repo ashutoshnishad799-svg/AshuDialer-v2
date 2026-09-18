@@ -12,14 +12,16 @@ private val Context.settingsDataStore by preferencesDataStore(name = "pixel_dial
 
 data class AppSettings(
     // Off by default: this app cannot reliably capture the other side of a
-    // call on a normal, non-rooted phone (see RecordingGuideScreen). Showing
-    // the record button out of the box, before the person has read that
-    // explanation, sets an expectation the app usually can't meet. The
+    // Recording is off by default until the person explicitly enables it after
+    // completing the Shizuku setup. Showing the record button out of the box,
+    // before the person has completed that setup, sets an expectation the app
+    // cannot meet yet. The
     // person now has to deliberately turn this on from Settings, which is
     // exactly where the guide/explanation lives.
     val callRecordingEnabled: Boolean = false,
     val autoRecordAll: Boolean = false,
     val announceRecording: Boolean = false,
+    val recordingAudioSource: String = "voice-call",
     val cloudBackupEnabled: Boolean = false,
 
     // Sub-toggles under callRecordingEnabled, for WhatsApp/Telegram VoIP call recording
@@ -75,6 +77,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyCallRecording = booleanPreferencesKey("call_recording_enabled")
     private val keyAutoRecordAll = booleanPreferencesKey("auto_record_all")
     private val keyAnnounceRecording = booleanPreferencesKey("announce_recording")
+    private val keyRecordingAudioSource = stringPreferencesKey("recording_audio_source")
     private val keyCloudBackup = booleanPreferencesKey("cloud_backup_enabled")
     private val keyRecordWhatsAppCalls = booleanPreferencesKey("record_whatsapp_calls_enabled")
     private val keyRecordTelegramCalls = booleanPreferencesKey("record_telegram_calls_enabled")
@@ -100,6 +103,7 @@ class AppSettingsRepository(private val context: Context) {
             callRecordingEnabled = prefs[keyCallRecording] ?: false,
             autoRecordAll = prefs[keyAutoRecordAll] ?: false,
             announceRecording = prefs[keyAnnounceRecording] ?: false,
+            recordingAudioSource = prefs[keyRecordingAudioSource] ?: "voice-call",
             cloudBackupEnabled = prefs[keyCloudBackup] ?: false,
             recordWhatsAppCallsEnabled = prefs[keyRecordWhatsAppCalls] ?: false,
             recordTelegramCallsEnabled = prefs[keyRecordTelegramCalls] ?: false,
@@ -140,6 +144,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setAnnounceRecording(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyAnnounceRecording] = enabled }
+    }
+
+    suspend fun setRecordingAudioSource(source: String) {
+        context.settingsDataStore.edit { it[keyRecordingAudioSource] = source }
     }
 
     suspend fun setCloudBackupEnabled(enabled: Boolean) {

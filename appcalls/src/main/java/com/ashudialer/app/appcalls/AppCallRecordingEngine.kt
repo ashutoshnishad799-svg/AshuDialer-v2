@@ -4,6 +4,7 @@ package com.ashudialer.app.appcalls
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioCodec
+import com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioSource
 import com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioMuxer
 import com.ashudialer.app.appcalls.scrcpy.ScrcpyClient
 import com.ashudialer.app.appcalls.scrcpy.ScrcpyConfig
@@ -61,7 +62,12 @@ class AppCallRecordingEngine(private val context: Context) {
      * @param bitRate AAC bitrate in bps; 0 or negative uses [ScrcpyAudioCodec.AAC]'s default.
      * @throws AppCallPipelineException on any setup failure, with a message safe to show the user.
      */
-    fun start(shellService: IShellService, outputFile: File, bitRate: Int = -1) {
+    fun start(
+        shellService: IShellService,
+        outputFile: File,
+        bitRate: Int = -1,
+        audioSource: String = ScrcpyAudioSource.OUTPUT.cliKey
+    ) {
         currentOutputFile = outputFile
         val resolvedBitRate = bitRate.takeIf { it > 0 } ?: ScrcpyAudioCodec.AAC.defaultBitRate
 
@@ -82,7 +88,7 @@ class AppCallRecordingEngine(private val context: Context) {
 
         val inputPfd = try {
             shellService.startRecording(
-                com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioSource.OUTPUT.cliKey,
+                audioSource,
                 ScrcpyAudioCodec.AAC.cliKey,
                 resolvedBitRate,
                 serverPath,
@@ -140,7 +146,7 @@ class AppCallRecordingEngine(private val context: Context) {
 
     /** Stops the pipeline and finalizes the output file. Safe to call even if [start] never fully succeeded. */
     fun stop(shellService: IShellService?) {
-        AppCallsLogger.i(TAG, "Stopping app-call recording pipeline...")
+        AppCallsLogger.i(TAG, "Stopping Shizuku recording pipeline...")
         runCatching { shellService?.stopRecording() }
 
         runCatching {

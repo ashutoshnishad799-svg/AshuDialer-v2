@@ -20,26 +20,6 @@ import android.provider.Settings
  */
 object OemPermissionHelper {
 
-    /**
-     * True only if the person has actually turned DialerAccessibilityService
-     * on in Android's Accessibility settings - not just that the service is
-     * declared/installed. Checked before showing the in-call record button
-     * so the button's availability always matches what's actually been
-     * granted, rather than what the app merely offers.
-     */
-    fun isAccessibilityServiceEnabled(context: android.content.Context): Boolean {
-        return try {
-            val enabledServices = Settings.Secure.getString(
-                context.contentResolver,
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-            ) ?: return false
-            val expected = "${context.packageName}/${DialerAccessibilityService::class.java.name}"
-            enabledServices.split(':').any { it.equals(expected, ignoreCase = true) }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
     fun isLikelyMiui(): Boolean {
         return Build.MANUFACTURER.contains("xiaomi", ignoreCase = true) ||
             Build.BRAND.contains("xiaomi", ignoreCase = true) ||

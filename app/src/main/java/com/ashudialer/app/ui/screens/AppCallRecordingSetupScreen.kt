@@ -60,10 +60,14 @@ fun AppCallRecordingSetupScreen(
     val scope = rememberCoroutineScope()
 
     var shizukuInstalled by remember { mutableStateOf(RecordingSetupChecker.isShizukuInstalled(context)) }
+    var shizukuRunning by remember { mutableStateOf(RecordingSetupChecker.isShizukuRunning()) }
+    var shizukuAuthorized by remember { mutableStateOf(RecordingSetupChecker.hasShizukuPermission()) }
+    var shizukuAudioCapture by remember { mutableStateOf(RecordingSetupChecker.hasShizukuAudioCapturePermission()) }
     var notificationAccessGranted by remember { mutableStateOf(RecordingSetupChecker.isAppCallNotificationAccessGranted(context)) }
     val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = com.ashudialer.app.data.AppSettings())
 
-    val bothPermissionsReady = shizukuInstalled && notificationAccessGranted
+    val shizukuReady = shizukuInstalled && shizukuRunning && shizukuAuthorized && shizukuAudioCapture
+    val bothPermissionsReady = shizukuReady && notificationAccessGranted
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -103,6 +107,12 @@ fun AppCallRecordingSetupScreen(
                     Text("1. Shizuku", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
                     Spacer(Modifier.height(8.dp))
                     StatusRow(shizukuInstalled, "Shizuku is installed", "Shizuku not found on this device", palette)
+                    Spacer(Modifier.height(7.dp))
+                    StatusRow(shizukuRunning, "Shizuku service is running", "Start Shizuku before recording", palette)
+                    Spacer(Modifier.height(7.dp))
+                    StatusRow(shizukuAuthorized, "Ashu Dialer is authorised in Shizuku", "Authorise Ashu Dialer in Authorized applications", palette)
+                    Spacer(Modifier.height(7.dp))
+                    StatusRow(shizukuAudioCapture, "Shizuku has system audio-capture access", "System audio capture is not available to the Shizuku server", palette)
                     Spacer(Modifier.height(14.dp))
                     OutlinedButton(
                         onClick = {
@@ -121,7 +131,13 @@ fun AppCallRecordingSetupScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
-                        onClick = { shizukuInstalled = RecordingSetupChecker.isShizukuInstalled(context) },
+                        onClick = {
+                            shizukuInstalled = RecordingSetupChecker.isShizukuInstalled(context)
+                            shizukuRunning = RecordingSetupChecker.isShizukuRunning()
+                            shizukuAuthorized = RecordingSetupChecker.hasShizukuPermission()
+                            shizukuAudioCapture = RecordingSetupChecker.hasShizukuAudioCapturePermission()
+                            notificationAccessGranted = RecordingSetupChecker.isAppCallNotificationAccessGranted(context)
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Re-check", fontSize = 13.sp)
@@ -166,7 +182,7 @@ fun AppCallRecordingSetupScreen(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(palette.accentSoft).padding(14.dp)
                     ) {
                         Text(
-                            "Both steps above need to be ready before the toggles below will do anything.",
+                            "Shizuku must be running and Ashu Dialer must be authorised, plus Notification Access must be granted, before the toggles below will do anything.",
                             fontSize = 12.5.sp, color = palette.textPrimary, lineHeight = 19.sp
                         )
                     }

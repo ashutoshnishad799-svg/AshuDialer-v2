@@ -68,26 +68,8 @@ import com.ashudialer.app.viewmodel.ViewModelFactory
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_ROOT_SETUP, RECORDING_ACCESSIBILITY_SETUP, RECORDING_ADB_SETUP, RECORDING_APP_CALLS_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, INCOMING_CALL_STYLE }
+private enum class OverlayScreen { NONE, ACCOUNT, PRIVACY_POLICY, SETTINGS, BLOCKED_NUMBERS, HELP_FEEDBACK, NOTES, RECORDINGS, RECORDING_GUIDE, RECORDING_SETTINGS, RECORDING_SHIZUKU_SETUP, RECORDING_APP_CALLS_SETUP, SIM_ROUTING, VIBRATION_PATTERNS, LOCAL_BACKUP, QUIET_HOURS, CALL_INSIGHTS, ABOUT, PRIVATE_SPACE, ADD_CONTACT, UPDATE_CHECK, INCOMING_CALL_STYLE }
 
-// THE FIX for the Modules/Root-setup screen "freezing" after tapping
-// "Open Magisk" and coming back: overlay used to be plain `remember`,
-// which only survives a configuration change (rotation) - it does NOT
-// survive the app's process actually being killed while backgrounded,
-// which is exactly what happens when Magisk (or any other external app)
-// is opened from inside this app and the OS reclaims memory from this
-// app's now-background process, common on MIUI in particular. When the
-// person came back, Android restarted MainActivity fresh, `remember`
-// had nothing to restore from, and overlay silently reset to NONE - at
-// which point the existing "only redirect when overlay == NONE" guard
-// (added for the same-process resume case) no longer helped, because
-// overlay genuinely *was* NONE again. The person's Modules screen was
-// gone with no back-stack to return to, indistinguishable from a freeze.
-// rememberSaveable with an explicit Saver (storing just the enum's name
-// as a String, since a plain enum isn't Parcelable/Serializable in a way
-// Bundle can store directly) survives process death the same way
-// rotation does, so overlay - and therefore which settings screen the
-// person was on - comes back exactly as they left it.
 private val OverlayScreenSaver = androidx.compose.runtime.saveable.Saver<OverlayScreen, String>(
     save = { it.name },
     restore = { name -> OverlayScreen.entries.find { it.name == name } ?: OverlayScreen.NONE }
@@ -791,8 +773,8 @@ class MainActivity : ComponentActivity() {
                         }
                         OverlayScreen.RECORDING_GUIDE -> overlay = if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
                         OverlayScreen.RECORDING_SETTINGS -> overlay = OverlayScreen.RECORDINGS
-                        OverlayScreen.RECORDING_ROOT_SETUP, OverlayScreen.RECORDING_ACCESSIBILITY_SETUP, OverlayScreen.RECORDING_ADB_SETUP ->
-                            overlay = OverlayScreen.RECORDING_SETTINGS
+                        OverlayScreen.RECORDING_SHIZUKU_SETUP -> overlay = OverlayScreen.RECORDING_SETTINGS
+                        OverlayScreen.RECORDING_APP_CALLS_SETUP -> overlay = OverlayScreen.RECORDING_SETTINGS
                         OverlayScreen.CALL_INSIGHTS -> {
                             // Same one-step-at-a-time pattern as Private
                             // Space above: land back on the day list first
@@ -842,29 +824,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize()
                     )
                 } else if ((!hasPermissions || !isDefaultDialer) && overlay == OverlayScreen.NONE) {
-                    // THE FIX for the Modules/Root-setup screen "freezing":
-                    // this branch used to fire on every single resume the
-                    // instant hasPermissions/isDefaultDialer read false,
-                    // with no regard for what the person was actually
-                    // looking at - including while they were sitting on
-                    // the Modules (RootRecordingSetupScreen) overlay,
-                    // which lives inside the `else` branch below and only
-                    // exists there. On MIUI in particular,
-                    // isDefaultDialer's underlying RoleManager/
-                    // TelecomManager query can read stale/false for a
-                    // moment right after returning from another app (e.g.
-                    // tapping "Open Magisk" from Modules and coming back),
-                    // which used to yank the entire overlay Compose
-                    // subtree out from under the person and replace it
-                    // with PermissionsScreen - the Modules screen just
-                    // vanished with no back-stack to return to, which is
-                    // exactly what read as a freeze even though nothing
-                    // had actually hung. Gating this redirect on
-                    // `overlay == OverlayScreen.NONE` means a real missing
-                    // permission is still caught (and still redirects)
-                    // the moment the person is back on the main app with
-                    // no overlay open, but never interrupts whatever
-                    // settings screen they're already mid-task on.
                     Box(modifier = Modifier.fillMaxSize().background(palette.background)) {
                         PermissionsScreen(
                             isDefaultDialer = isDefaultDialer,
@@ -1498,22 +1457,17 @@ class MainActivity : ComponentActivity() {
                                                 recordingGuideOpenedFromSettings = false
                                                 overlay = OverlayScreen.RECORDING_GUIDE
                                             },
-                                            onOpenRootSetup = { overlay = OverlayScreen.RECORDING_ROOT_SETUP },
-                                            onOpenAccessibilitySetup = { overlay = OverlayScreen.RECORDING_ACCESSIBILITY_SETUP },
-                                            onOpenAdbSetup = { overlay = OverlayScreen.RECORDING_ADB_SETUP },
+                                            onOpenShizukuSetup = { overlay = OverlayScreen.RECORDING_SHIZUKU_SETUP },
                                             onOpenAppCallsSetup = { overlay = OverlayScreen.RECORDING_APP_CALLS_SETUP },
+                                            onOpenPrivateSpace = { overlay = OverlayScreen.PRIVATE_SPACE },
                                             modifier = Modifier.fillMaxSize()
                                         )
-                                        OverlayScreen.RECORDING_ROOT_SETUP -> com.ashudialer.app.ui.screens.RootRecordingSetupScreen(
+                                        OverlayScreen.RECORDING_SHIZUKU_SETUP -> com.ashudialer.app.ui.screens.ShizukuRecordingSetupScreen(
                                             onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        OverlayScreen.RECORDING_ACCESSIBILITY_SETUP -> com.ashudialer.app.ui.screens.AccessibilityRecordingSetupScreen(
-                                            onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        OverlayScreen.RECORDING_ADB_SETUP -> com.ashudialer.app.ui.screens.AdbRecordingSetupScreen(
-                                            onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
+                                            onOpenGuide = {
+                                                recordingGuideOpenedFromSettings = true
+                                                overlay = OverlayScreen.RECORDING_GUIDE
+                                            },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_APP_CALLS_SETUP -> com.ashudialer.app.ui.screens.AppCallRecordingSetupScreen(

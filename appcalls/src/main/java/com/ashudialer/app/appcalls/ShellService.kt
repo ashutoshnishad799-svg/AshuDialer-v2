@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 
 /**
- * ShellService runs inside the privileged shell process (UID 2000, or 0 on a rooted device)
+ * ShellService runs inside the privileged Shizuku shell process (UID 2000)
  * that Shizuku spawns and manages. Running under that identity lets it launch scrcpy-server via
  * `app_process` and capture audio a normal app process cannot reach.
  *
@@ -118,7 +118,7 @@ class ShellService : IShellService.Stub {
             // Start the relay coroutine BEFORE launching scrcpy-server so accept() is already waiting.
             spawnAudioRelayCoroutine(isDebuggingModeEnabled)
 
-            val serverArgs = ScrcpyConfig.buildServerArgs(socketName, audioBitRate)
+            val serverArgs = ScrcpyConfig.buildServerArgs(socketName, audioBitRate, audioSource)
             val launchCommand = mutableListOf("app_process", "/", ScrcpyConfig.SERVER_MAIN_CLASS)
             launchCommand.addAll(serverArgs)
 

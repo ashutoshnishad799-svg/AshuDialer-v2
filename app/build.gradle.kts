@@ -122,17 +122,7 @@ android {
         }
     }
 
-    flavorDimensions += "distribution"
-    productFlavors {
-        create("normal") {
-            dimension = "distribution"
-            buildConfigField("boolean", "CALL_RECORDING_ENABLED", "false")
-        }
-        create("root") {
-            dimension = "distribution"
-            buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
-        }
-    }
+    buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
 
     signingConfigs {
         create("release") {

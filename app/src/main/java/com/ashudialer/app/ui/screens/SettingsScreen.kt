@@ -197,7 +197,7 @@ fun SettingsScreen(
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "Call recording is available only in the privileged/root build.",
+                        "Call recording uses the Shizuku setup from Recording settings.",
                         fontSize = 12.sp, color = palette.textSecondary, modifier = Modifier.padding(horizontal = 4.dp), lineHeight = 17.sp
                     )
                 }

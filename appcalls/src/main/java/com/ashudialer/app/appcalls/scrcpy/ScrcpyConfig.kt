@@ -30,7 +30,7 @@ object ScrcpyConfig {
      * Why shared storage? The shell process (UID 2000) cannot read this app's private data
      * directory, but CAN read paths under /storage/emulated/0/Android/data/ - the external
      * files directory is the one location writable by this app and readable by the shell
-     * process without root.
+     * process via Shizuku.
      */
     fun getServerPath(context: Context): String {
         val folder = context.getExternalFilesDir(null)
@@ -50,10 +50,10 @@ object ScrcpyConfig {
 
     /**
      * Builds the argument list passed to scrcpy-server after the version string. Trimmed from
-     * upstream's version (which also takes a user-selectable codec/bitrate) since this module
-     * hardcodes OUTPUT+AAC - see ScrcpyAudioSource/ScrcpyAudioCodec doc comments for why.
+     * upstream's version down to the audio-only arguments needed here while keeping the
+     * audio source selectable for phone-call and VoIP recording.
      */
-    fun buildServerArgs(socketName: String, bitRate: Int): List<String> {
+    fun buildServerArgs(socketName: String, bitRate: Int, audioSource: String = ScrcpyAudioSource.OUTPUT.cliKey): List<String> {
         val args = mutableListOf(
             SCRCPY_VERSION,
             "log_level=info",
@@ -67,7 +67,7 @@ object ScrcpyConfig {
             "tunnel_forward=false",
             "send_dummy_byte=false",
             "scid=$socketName",
-            "audio_source=${ScrcpyAudioSource.OUTPUT.cliKey}",
+            "audio_source=$audioSource",
             "audio_codec=${ScrcpyAudioCodec.AAC.cliKey}",
             "send_device_meta=false",
             "send_frame_meta=true",

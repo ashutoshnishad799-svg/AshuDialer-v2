@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.OemPermissionHelper
 import com.ashudialer.app.telecom.RecordingSetupChecker
-import com.ashudialer.app.telecom.SetupCheckResult
 import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +51,7 @@ import com.ashudialer.app.ui.components.glassCard
  * hasPermissions in MainActivity and for the identical reason: any of
  * these can change from outside this screen entirely - granting phone
  * permissions from a system dialog, setting the default dialer from
- * Settings, flashing a root module and rebooting - and this screen must
+ * Settings, changing system or device settings outside this screen - and this screen must
  * reflect whichever of those actually happened by the time the person is
  * looking at it again, not a stale snapshot from when it first appeared.
  */
@@ -82,17 +81,11 @@ fun PermissionsScreen(
     // press from silently closing the whole app mid-setup.
     androidx.activity.compose.BackHandler(enabled = true) {}
 
-    // Recording readiness needs an actual short MediaRecorder probe (see
-    // RecordingSetupChecker.checkVoiceCallSourceAvailable), not just a
-    // settings read - so, unlike the two flags passed in above, it's owned
-    // locally here and refreshed the same way: once up front, then again
-    // on every resume.
     var recordingReady by remember { mutableStateOf<Boolean?>(null) }
 
     suspend fun refreshRecordingStatus() {
         recordingReady = withContext(Dispatchers.IO) {
-            RecordingSetupChecker.checkVoiceCallSourceAvailable(context) == SetupCheckResult.GRANTED
-                || RecordingSetupChecker.isRunningAsPrivApp(context)
+            RecordingSetupChecker.isShizukuReady()
         }
     }
 

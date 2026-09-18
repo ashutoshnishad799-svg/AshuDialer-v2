@@ -337,7 +337,7 @@ class PixelInCallService : InCallService() {
                 // network level with no UI ever reflecting it.
                 //
                 // status is one of VideoProfile's SESSION_MODIFICATION_STATE_*
-                // constants; only SESSION_MODIFICATION_STATE_SUCCESS means the
+                // constants; only SESSION_MODIFY_REQUEST_SUCCESS means the
                 // request was actually granted. Checking responseProfile's own videoState as
                 // well (not just status) matches what the AOSP Dialer's
                 // own VideoCallPresenter does - a carrier can in principle

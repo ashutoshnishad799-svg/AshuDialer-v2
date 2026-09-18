@@ -254,7 +254,7 @@ class InCallActivity : ComponentActivity() {
             // down) that this device's telephony stack holds exclusive
             // control of the microphone path for the call's entire
             // duration, independent of which AudioSource this app's own
-            // MediaRecorder requests. isMicrophoneMute() reflects that
+            // Audio-capture requests. isMicrophoneMute() reflects that
             // system-level state directly rather than this app having to
             // infer it indirectly from amplitude alone - if this reads
             // true while recording is running, that is the actual
@@ -405,13 +405,13 @@ class InCallActivity : ComponentActivity() {
             LaunchedEffect(callState) {
                 if (callState == Call.STATE_DISCONNECTED) {
                     // THE ACTUAL FIX for the black screen after a call ends:
-                    // this used to call app.callRecorder.stop() and AWAIT it
+                    // this used to call withContext(Dispatchers.IO) { app.callRecorder.stop() } and AWAIT it
                     // (a plain blocking function, not a suspend function)
                     // before calling finish() on the same line. MediaRecorder
                     // .stop() is well documented to block for a noticeable
                     // moment while it flushes/finalizes the encoder - worse
                     // on short recordings (confirmed via AOSP's own
-                    // MediaRecorder CTS test, which had to add a manual delay
+                    // encoder flush behavior, which had to add a manual delay
                     // after stop() specifically for short-duration clips).
                     // Since this whole block runs as a coroutine on
                     // Dispatchers.Main (LaunchedEffect's default), that
@@ -462,7 +462,7 @@ class InCallActivity : ComponentActivity() {
                     closeCallUiImmediately()
                     if (app.callRecorder.isRecording) {
                         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                            app.callRecorder.stop()
+                            withContext(Dispatchers.IO) { app.callRecorder.stop() }
                         }
                     }
                 }
@@ -525,99 +525,14 @@ class InCallActivity : ComponentActivity() {
 
             LaunchedEffect(isRecording, callState) {
                 if (!isRecording) return@LaunchedEffect
-                var quietPollsInARow = 0
                 while (app.callRecorder.isRecording) {
                     recordingSeconds = app.callRecorder.elapsedSeconds()
                     recordingMode = app.callRecorder.currentMode()
-                    isRecording = true
-                    // Only start judging silence once elapsedSeconds > 2 -
-                    // the very first couple of polls can legitimately read
-                    // near-zero simply because the encoder hasn't flushed
-                    // its first real audio frame yet, which isn't the same
-                    // failure this is meant to catch.
-                    if (recordingSeconds > 2) {
-                        val amplitude = app.callRecorder.currentAmplitude()
-                        if (amplitude <= 15) {
-                            quietPollsInARow++
-                        } else {
-                            quietPollsInARow = 0
-                        }
-                        // ~6 seconds of continuous silence (500ms poll x 12)
-                        // before flagging - long enough that a normal pause
-                        // in conversation won't trip it, short enough that
-                        // the person still finds out mid-call rather than
-                        // only after listening back afterward.
-                        recordingLooksSilent = quietPollsInARow >= 12
-
-                        // Check the actual system mic-mute state once
-                        // silence has run long enough to be worth
-                        // investigating, rather than every single poll -
-                        // this is a real system call (AudioManager),
-                        // cheap but no reason to run it every 500ms when
-                        // there's real signal.
-                        if (quietPollsInARow >= 8) {
-                            micIsSystemMuted = try {
-                                val am = getSystemService(AUDIO_SERVICE) as? android.media.AudioManager
-                                am?.isMicrophoneMute == true
-                            } catch (_: Throwable) {
-                                false
-                            }
-                        } else {
-                            micIsSystemMuted = false
-                        }
-
-                        // At ~4 seconds (500ms poll x 8), attempt one
-                        // capped mid-call restart onto the next fallback
-                        // source - confirmed necessary on at least one
-                        // real device where VOICE_UPLINK opens and starts
-                        // cleanly (so it isn't caught by any upfront
-                        // probe) but produces genuine silence for the
-                        // whole call, with real audio only appearing in
-                        // roughly the last second as the call tears down.
-                        // Lowered from the original 8-second threshold
-                        // (poll x 16): on a short call - confirmed
-                        // directly on a ~15-second test call - the old
-                        // threshold left less than a second of margin
-                        // before the call could end first, so the
-                        // recording captured silence start-to-finish with
-                        // real audio only in literally the last 1-2
-                        // seconds during teardown. 4 seconds still safely
-                        // clears the >2-second startup grace period above
-                        // and the required run of quiet polls, while
-                        // leaving enough of even a short call to actually
-                        // benefit from the switch. restartOnSustainedSilence()
-                        // itself caps this to once per call and only acts
-                        // if the source has produced literally zero signal
-                        // since it started (not just this poll window), so
-                        // a real quiet moment in an actual conversation
-                        // can't trigger it - only a source that has
-                        // carried no audio at all so far can. NOTE:
-                        // confirmed on a real device that this restart
-                        // alone is not sufficient when the block is
-                        // system-wide (MIC also came back silent after a
-                        // restart from VOICE_UPLINK) - micIsSystemMuted
-                        // above is what actually explains that case; the
-                        // restart still helps on devices where only the
-                        // specific privileged source (not MIC) is the
-                        // problem. Beyond this call, CallRecorder.start()
-                        // now also remembers a confirmed-silent source
-                        // permanently (see markSourceKnownSilent) so
-                        // future calls skip straight past it instead of
-                        // re-losing time to it on every call.
-                        if (quietPollsInARow >= 8) {
-                            val switchedTo = app.callRecorder.restartOnSustainedSilence()
-                            if (switchedTo != null) {
-                                recordingMode = switchedTo
-                                quietPollsInARow = 0
-                                recordingLooksSilent = false
-                                micIsSystemMuted = false
-                            }
-                        }
-                    }
-                    kotlinx.coroutines.delay(500)
+                    delay(500)
                 }
                 isRecording = false
                 recordingMode = null
+                recordingSeconds = 0
                 recordingLooksSilent = false
                 micIsSystemMuted = false
             }
@@ -632,10 +547,8 @@ class InCallActivity : ComponentActivity() {
                     recordingSeconds = app.callRecorder.elapsedSeconds()
                     return
                 }
-                // CallRecorder.start() calls MediaRecorder.prepare()/start()
-                // and a short SystemClock.sleep() per candidate audio source
-                // (it can try up to 3 sources before giving up), which is
-                // genuinely blocking I/O - up to several hundred ms. Running
+                // Shizuku user-service binding, scrcpy-server startup and
+                // file creation are blocking I/O. Running
                 // it directly from this click handler used to block the main
                 // thread, so the record button (and the whole call screen)
                 // would freeze/lag right when tapped. Moving the blocking
@@ -643,14 +556,8 @@ class InCallActivity : ComponentActivity() {
                 // afterwards (back on the main thread automatically once the
                 // launched block resumes) keeps the tap responsive.
                 //
-                // Recording must not silently change the user's audio route.
-                // CallRecorder first tries protected/communication call-audio
-                // sources and only then falls back to the normal microphone.
-                // Android does not provide a public API for an ordinary app to
-                // force two-way cellular capture, so we never fake that by
-                // switching speaker on automatically.
                 lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val mode = app.callRecorder.start(callerLabel)
+                    val mode = app.callRecorder.start(callerLabel, settings.recordingAudioSource)
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         recordingMode = mode.takeIf { it != RecordingMode.FAILED }
                         isRecording = mode != RecordingMode.FAILED
@@ -660,14 +567,14 @@ class InCallActivity : ComponentActivity() {
             }
 
             fun stopRecording() {
-                // stop() also does blocking I/O (MediaRecorder.stop() plus
+                // stop() also does blocking I/O (recorder stop I/O plus
                 // copying the file into public storage) - same reasoning as
                 // startRecording() above.
                 isRecording = false
                 recordingMode = null
                 recordingSeconds = 0
                 lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    app.callRecorder.stop()
+                    withContext(Dispatchers.IO) { app.callRecorder.stop() }
                 }
             }
 
@@ -1019,7 +926,7 @@ class InCallActivity : ComponentActivity() {
                                 isEndingCall = isEndingCall,
                                 onEndCall = {
                                     // Register the tap immediately, then ask Telecom to
-                                    // disconnect. Do not stop MediaRecorder before the
+                                    // disconnect. Do not stop the recorder before the
                                     // disconnect request: releasing the capture path first
                                     // can add avoidable work to the same OEM call-end window.
                                     isEndingCall = true

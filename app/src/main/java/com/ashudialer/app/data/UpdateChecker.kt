@@ -106,12 +106,7 @@ class UpdateChecker(private val context: Context) {
                 val asset = assets.optJSONObject(i) ?: continue
                 val name = asset.optString("name").trim()
                 val url = asset.optString("browser_download_url").trim()
-                // Prefer the normal signed APK. Never select the root APK/module.
-                if (name.endsWith(".apk", ignoreCase = true) &&
-                    !name.contains("Root", ignoreCase = true) &&
-                    !name.contains("Magisk", ignoreCase = true) &&
-                    url.isNotBlank()
-                ) {
+                if (name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()) {
                     apkName = name
                     apkUrl = url
                     break
