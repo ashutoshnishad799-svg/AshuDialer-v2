@@ -747,7 +747,7 @@ private fun RecordingWaveformBar(seconds: Int, mode: RecordingMode?, looksSilent
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
             )
-        } else if (mode == RecordingMode.MICROPHONE) {
+        } else if (mode == RecordingMode.VOICE_COMMUNICATION) {
             Text(
                 text = "Recording via microphone — call audio access is restricted by Android/OEM",
                 color = Color.Black.copy(alpha = 0.55f),
