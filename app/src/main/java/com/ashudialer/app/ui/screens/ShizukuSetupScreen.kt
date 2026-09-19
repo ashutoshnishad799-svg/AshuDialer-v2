@@ -196,7 +196,7 @@ fun ShizukuSetupScreen(
             }
 
             // ---- The permission checklist, in Ever's order ------------------------------
-            item { SectionLabel("Steps", palette) }
+            item { ShizukuSectionLabel("Steps", palette) }
             val installed = s?.isDone(SetupStep.SHIZUKU_INSTALLED) == true
             SetupStep.entries.forEach { step ->
                 item(key = step.name) {
@@ -215,7 +215,7 @@ fun ShizukuSetupScreen(
             }
 
             // ---- Shizuku auto-start ------------------------------------------------------
-            item { SectionLabel("Shizuku auto-start (optional)", palette) }
+            item { ShizukuSectionLabel("Shizuku auto-start (optional)", palette) }
             item {
                 Column(Modifier.fillMaxWidth().glassCard(palette, 16.dp).padding(16.dp)) {
                     Text(
@@ -244,7 +244,7 @@ fun ShizukuSetupScreen(
             }
 
             // ---- Rooted phone shortcut ---------------------------------------------------
-            item { SectionLabel("Rooted phone?", palette) }
+            item { ShizukuSectionLabel("Rooted phone?", palette) }
             item {
                 Column(Modifier.fillMaxWidth().glassCard(palette, 16.dp).padding(16.dp)) {
                     Text("Shizuku works even better with root: it can start by itself at every boot.", fontSize = 12.5.sp, color = palette.textPrimary, lineHeight = 18.sp)
@@ -275,7 +275,7 @@ fun ShizukuSetupScreen(
 // ---- Small UI pieces ---------------------------------------------------------------------
 
 @Composable
-private fun SectionLabel(text: String, palette: com.ashudialer.app.ui.theme.DialerPalette) {
+private fun ShizukuSectionLabel(text: String, palette: com.ashudialer.app.ui.theme.DialerPalette) {
     Text(
         text.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp,
         color = palette.textSecondary, modifier = Modifier.padding(top = 10.dp, start = 4.dp)
