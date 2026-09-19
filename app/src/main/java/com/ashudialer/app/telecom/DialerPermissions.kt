@@ -4,13 +4,13 @@ import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import android.Manifest
+import android.os.Build
 
 data class SimAccount(
     val handle: PhoneAccountHandle,
@@ -31,15 +31,11 @@ object DialerPermissions {
         add(Manifest.permission.READ_CONTACTS)
         add(Manifest.permission.WRITE_CONTACTS)
         add(Manifest.permission.ANSWER_PHONE_CALLS)
-        if (com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED) {
-            add(Manifest.permission.RECORD_AUDIO)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.READ_MEDIA_AUDIO)
-            } else {
-                add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        // Call recording is an optional feature. Its Shizuku setup belongs in
+        // the dedicated Call recording setup screen and must never block a
+        // normal user from finishing the basic dialer setup. In particular,
+        // RECORD_AUDIO / media-audio access are not dialer prerequisites.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
         }
     }.toTypedArray()

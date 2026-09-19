@@ -1360,14 +1360,11 @@ class MainActivity : ComponentActivity() {
                                             onOpenIncomingCallStyle = { overlay = OverlayScreen.INCOMING_CALL_STYLE },
                                             onToggleCallRecording = { enabled ->
                                                 if (enabled) {
-                                                    // Route through the guide first instead of
-                                                    // flipping the setting immediately - the person
-                                                    // needs to see, before recording is even
-                                                    // possible, that two-way capture isn't
-                                                    // guaranteed on their device and what the real
-                                                    // options are. Turning off never needs this.
-                                                    recordingGuideOpenedFromSettings = true
-                                                    overlay = OverlayScreen.RECORDING_GUIDE
+                                                    // Recording is an optional feature. Keep every
+                                                    // Shizuku/recording prerequisite inside the
+                                                    // dedicated recording flow instead of putting it
+                                                    // on the normal dialer setup screen.
+                                                    overlay = OverlayScreen.RECORDING_SETUP
                                                 } else {
                                                     viewModel.setCallRecordingEnabled(false)
                                                 }

@@ -6,7 +6,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -16,38 +15,27 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.OemPermissionHelper
-import com.ashudialer.app.telecom.RecordingSetupChecker
 import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.ashudialer.app.ui.components.glassCard
 
 /**
- * The post-onboarding setup checklist: three concrete, checkable items
- * (phone/call permissions, default-dialer role, and whether call recording
- * can actually work on this device right now) rather than one generic
- * "grant permissions" button - so the person always sees exactly which
- * step is still outstanding, not just a single pass/fail state.
+ * The post-onboarding setup checklist for the actual dialer only: phone/call
+ * permissions and the default-dialer role. Call-recording/Shizuku setup is
+ * deliberately kept out of this gate and lives in the dedicated recording
+ * setup flow so a normal user never needs Shizuku just to use the dialer.
  *
- * Every card's status is re-read on every resume (see the ON_RESUME
- * DisposableEffect below), the same fix applied to isDefaultDialer/
+ * Every card's status is re-read on every resume by MainActivity, the same
+ * fix applied to isDefaultDialer/
  * hasPermissions in MainActivity and for the identical reason: any of
  * these can change from outside this screen entirely - granting phone
  * permissions from a system dialog, setting the default dialer from
@@ -66,45 +54,6 @@ fun PermissionsScreen(
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
-    val context = LocalContext.current
-
-    // THE FIX for "app sometimes closes right when I open it" (the same
-    // class of bug as OnboardingScreen's BackHandler - see that screen's
-    // comment for the full explanation): this screen previously had no
-    // BackHandler either, so a back press here fell through to the system
-    // default and finished the Activity outright, right at the point a
-    // fresh install is trying to get set up. Deliberately a no-op rather
-    // than stepping back through anything (there's no previous step to
-    // return to here - this is a flat single screen, not a multi-page
-    // flow like Onboarding) - the person can still leave the app via the
-    // home/recents gesture as normal, this only stops an accidental back
-    // press from silently closing the whole app mid-setup.
-    androidx.activity.compose.BackHandler(enabled = true) {}
-
-    // Recording readiness = Shizuku is running and this app was granted its
-    // permission. Owned locally here (unlike the two flags passed in above)
-    // and refreshed once up front, then again on every resume.
-    var recordingReady by remember { mutableStateOf<Boolean?>(null) }
-
-    suspend fun refreshRecordingStatus() {
-        recordingReady = withContext(Dispatchers.IO) {
-            // Shizuku-only: running + permission granted for this app.
-            RecordingSetupChecker.isShizukuRunning() && RecordingSetupChecker.hasShizukuPermission(context)
-        }
-    }
-
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                coroutineScope.launch { refreshRecordingStatus() }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        coroutineScope.launch { refreshRecordingStatus() }
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
 
     Column(modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
         Row(
@@ -164,18 +113,6 @@ fun PermissionsScreen(
                 done = isDefaultDialer,
                 palette = palette
             )
-            Spacer(Modifier.height(12.dp))
-            SetupChecklistItem(
-                icon = Icons.Filled.FiberManualRecord,
-                title = "Call recording (Shizuku) ready",
-                // Genuinely unknown until the probe above finishes, rather
-                // than defaulting to either state - a false checkmark here
-                // would tell someone recording works when it might not.
-                done = recordingReady == true,
-                pending = recordingReady == null,
-                palette = palette
-            )
-
             if (hasPermissions && isDefaultDialer && OemPermissionHelper.isLikelyMiui()) {
                 Spacer(Modifier.height(20.dp))
                 Column(
@@ -264,8 +201,7 @@ private fun SetupChecklistItem(
     icon: ImageVector,
     title: String,
     done: Boolean,
-    palette: DialerPalette,
-    pending: Boolean = false
+    palette: DialerPalette
 ) {
     Row(
         modifier = Modifier
@@ -282,10 +218,10 @@ private fun SetupChecklistItem(
         }
         Spacer(Modifier.width(14.dp))
         Text(title, fontSize = 15.sp, color = palette.textPrimary, modifier = Modifier.weight(1f))
-        when {
-            pending -> Icon(Icons.Filled.Warning, contentDescription = "Checking", tint = palette.textSecondary, modifier = Modifier.size(20.dp))
-            done -> Icon(Icons.Filled.CheckCircle, contentDescription = "Done", tint = palette.accent, modifier = Modifier.size(22.dp))
-            else -> Icon(Icons.Filled.Warning, contentDescription = "Not set up yet", tint = palette.danger, modifier = Modifier.size(20.dp))
+        if (done) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = "Done", tint = palette.accent, modifier = Modifier.size(22.dp))
+        } else {
+            Icon(Icons.Filled.Warning, contentDescription = "Not set up yet", tint = palette.danger, modifier = Modifier.size(20.dp))
         }
     }
 }
