@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- See bg_notification_pill_neutral.xml for why this is ripple-wrapped. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#66FFFFFF">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#34C759" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
+</ripple>

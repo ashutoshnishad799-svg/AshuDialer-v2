@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Ashu Dialer</string>
+    <string name="tab_contacts">Contacts</string>
+    <string name="tab_recent">Recent</string>
+    <string name="tab_dialer">Dialer</string>
+    <string name="tab_protect">Protect</string>
+    <string name="tab_more">More</string>
+    <string name="search_recent">Search Recent</string>
+    <string name="today">Today</string>
+    <string name="permissions_required_title">Permissions needed</string>
+    <string name="permissions_required_body">Ashu Dialer needs phone, contacts and call log access to work as your dialer.</string>
+    <string name="set_default_dialer">Set as default dialer</string>
+    <string name="grant_permissions">Grant permissions</string>
+    <string name="accessibility_service_summary">Helps Ashu Dialer stay active in the background during calls</string>
+    <string name="accessibility_service_description">This does not read your screen, does not capture call audio, and requests no special controls. It only helps some phones avoid closing Ashu Dialer in the background while a call is active.</string>
+</resources>
