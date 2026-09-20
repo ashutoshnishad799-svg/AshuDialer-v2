@@ -206,7 +206,7 @@ fun DialerScreen(
                     // Same clip as last time: reuse the previous verdict, no read, no toast.
                     clipboardHasNumber = lastWasNumber
                 } else {
-                    val clipText = clipboard.primaryClip
+                    val clipText = clipboard?.primaryClip
                         ?.takeIf { it.itemCount > 0 }
                         ?.getItemAt(0)
                         ?.coerceToText(context)
