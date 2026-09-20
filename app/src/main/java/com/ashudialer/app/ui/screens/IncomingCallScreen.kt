@@ -132,7 +132,7 @@ private fun incomingCallBackdropColor(palette: DialerPalette): Color {
  * its own rise-and-fade.
  */
 @Composable
-private fun rememberEntranceProgress(delayMs: Int): State<Float> {
+internal fun rememberEntranceProgress(delayMs: Int): State<Float> {
     var started by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(delayMs.toLong())
@@ -164,6 +164,9 @@ private fun rememberEntranceProgress(delayMs: Int): State<Float> {
  *    gradient backdrop, and accept/decline as glass pill buttons with their
  *    own ripple-on-press feedback.
  *
+ *  - "classic" / "hyper" / "ios": plain, system-like screens (white minimal,
+ *    HyperOS-like, iPhone-like) - see IncomingCallStylesClean.kt.
+ *
  * An unrecognized/stale style string (e.g. a future update removes a style)
  * falls back to "aurora" rather than crashing, since this value round-trips
  * through DataStore as a plain string.
@@ -179,9 +182,30 @@ fun IncomingCallScreen(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onQuickMessage: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Used only by the style picker to show the real screen at a small size
+    // (no entrance animation, no window-inset padding, no quick-reply row).
+    isPreview: Boolean = false
 ) {
     when (style) {
+        "classic" -> ClassicIncomingCallScreen(
+            callerName = callerName, callerNumber = callerNumber, spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri, isSavedContact = isSavedContact,
+            onAccept = onAccept, onDecline = onDecline, onQuickMessage = onQuickMessage, modifier = modifier,
+            isPreview = isPreview
+        )
+        "hyper" -> HyperIncomingCallScreen(
+            callerName = callerName, callerNumber = callerNumber, spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri, isSavedContact = isSavedContact,
+            onAccept = onAccept, onDecline = onDecline, onQuickMessage = onQuickMessage, modifier = modifier,
+            isPreview = isPreview
+        )
+        "ios" -> IosIncomingCallScreen(
+            callerName = callerName, callerNumber = callerNumber, spamAssessment = spamAssessment,
+            callerPhotoUri = callerPhotoUri, isSavedContact = isSavedContact,
+            onAccept = onAccept, onDecline = onDecline, onQuickMessage = onQuickMessage, modifier = modifier,
+            isPreview = isPreview
+        )
         "orbit" -> OrbitIncomingCallScreen(
             callerName = callerName,
             callerNumber = callerNumber,
@@ -723,7 +747,7 @@ private fun SwipeUpCallCircle(
  * text-reply, matching the existing public API this screen already exposed.
  */
 @Composable
-private fun QuickActionsPill(onQuickMessage: () -> Unit, modifier: Modifier = Modifier, lightMode: Boolean = false) {
+internal fun QuickActionsPill(onQuickMessage: () -> Unit, modifier: Modifier = Modifier, lightMode: Boolean = false) {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
@@ -754,7 +778,7 @@ private fun PillAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
  * Fades a composable in while rising slightly from below - the entrance
  * motion used for the identity block, spam badge, and action row.
  */
-private fun Modifier.graphicsLayerAlphaRise(progress: Float): Modifier = this.graphicsLayer {
+internal fun Modifier.graphicsLayerAlphaRise(progress: Float): Modifier = this.graphicsLayer {
     alpha = progress
     translationY = (1f - progress) * 14.dp.toPx()
 }
@@ -764,7 +788,7 @@ private fun Modifier.graphicsLayerAlphaRise(progress: Float): Modifier = this.gr
  * warning rather than static text.
  */
 @Composable
-private fun SpamBadge(modifier: Modifier = Modifier) {
+internal fun SpamBadge(modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "spam-badge-pulse")
     val glowAlpha by transition.animateFloat(
         initialValue = 0.85f, targetValue = 1f,

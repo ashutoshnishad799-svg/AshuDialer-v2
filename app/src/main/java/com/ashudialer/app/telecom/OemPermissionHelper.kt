@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.app.NotificationManager
 import android.provider.Settings
 
 /**
@@ -81,6 +82,40 @@ object OemPermissionHelper {
     }
 
     /** Generic (non-MIUI-specific) battery optimization screen for this app, as a last resort. */
+    /**
+     * Whether this app may pop the incoming-call screen over the lock screen.
+     *
+     * Only Android 14+ (API 34) gates this behind a user-visible switch
+     * ("Full screen notifications"). On Android 13 and below the manifest
+     * permission is granted automatically, so this returns true. Without it a
+     * locked phone shows only a small heads-up banner and the big call screen
+     * never wakes the display - the "screen lock rahta hai to full screen call
+     * nahi aata" problem.
+     */
+    fun canUseFullScreenIntent(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        return try {
+            context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+        } catch (_: Throwable) {
+            true
+        }
+    }
+
+    /** Opens the "Full screen notifications" switch for this app (Android 14+), else the app's details page. */
+    fun openFullScreenIntentSettings(context: Context): Boolean {
+        return try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.fromParts("package", context.packageName, null))
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+            }
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: Exception) {
+            openAppBatterySettings(context)
+        }
+    }
+
     fun openAppBatterySettings(context: Context): Boolean {
         return try {
             val intent = Intent(

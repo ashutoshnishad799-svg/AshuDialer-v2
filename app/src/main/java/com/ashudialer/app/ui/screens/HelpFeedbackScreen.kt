@@ -9,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -16,7 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,6 +26,59 @@ import com.ashudialer.app.ui.theme.LocalDialerPalette
 import com.ashudialer.app.ui.components.glassCard
 
 private data class FaqItem(val question: String, val answer: String)
+
+private const val INSTAGRAM_USER = "ashutosh_07x"
+private const val TELEGRAM_USER = "ashutosh_07x"
+private const val TELEGRAM_CHANNEL = "ashuapps_07x"
+
+/**
+ * Opens [webUrl] in the dedicated app when possible ([appPackage] + [appUri]),
+ * otherwise in the browser. Going through ACTION_VIEW with an explicit package
+ * avoids the blank/black screen some phones show when a generic openUri() hands
+ * an instagram.com link to a half-initialised in-app browser tab.
+ */
+private fun openExternal(context: android.content.Context, appPackage: String, appUri: String, webUrl: String) {
+    val nativeIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(appUri))
+        .setPackage(appPackage)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    val webIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(webUrl))
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(nativeIntent)
+    } catch (_: Throwable) {
+        try {
+            context.startActivity(webIntent)
+        } catch (_: Throwable) {
+            android.widget.Toast.makeText(context, "Couldn't open the link", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+@Composable
+private fun SupportLinkRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    val palette = LocalDialerPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp)
+            .glassCard(palette, 14.dp)
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+            Text(subtitle, fontSize = 12.5.sp, color = palette.textSecondary)
+        }
+    }
+}
 
 private val faqs = listOf(
     FaqItem(
@@ -50,7 +105,7 @@ fun HelpFeedbackScreen(
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
-    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -87,20 +142,26 @@ fun HelpFeedbackScreen(
 
             Spacer(Modifier.height(16.dp))
             Text("Support", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textSecondary, modifier = Modifier.padding(bottom = 8.dp, start = 4.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassCard(palette, 14.dp)
-                    .clickable { uriHandler.openUri("https://instagram.com/ashtosh_07x") }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+            SupportLinkRow(
+                icon = Icons.Filled.Send,
+                title = "Message me on Telegram",
+                subtitle = "@$TELEGRAM_USER - fastest reply"
             ) {
-                Icon(Icons.Filled.Send, contentDescription = null, tint = palette.accent, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Contact support", fontSize = 14.5.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
-                    Text("@ashtosh_07x", fontSize = 12.5.sp, color = palette.textSecondary)
-                }
+                openExternal(context, "org.telegram.messenger", "tg://resolve?domain=$TELEGRAM_USER", "https://t.me/$TELEGRAM_USER")
+            }
+            SupportLinkRow(
+                icon = Icons.Filled.CameraAlt,
+                title = "Instagram",
+                subtitle = "@$INSTAGRAM_USER"
+            ) {
+                openExternal(context, "com.instagram.android", "https://instagram.com/_u/$INSTAGRAM_USER", "https://instagram.com/$INSTAGRAM_USER")
+            }
+            SupportLinkRow(
+                icon = Icons.Filled.Campaign,
+                title = "Telegram support channel",
+                subtitle = "Updates, releases and help - t.me/$TELEGRAM_CHANNEL"
+            ) {
+                openExternal(context, "org.telegram.messenger", "tg://resolve?domain=$TELEGRAM_CHANNEL", "https://t.me/$TELEGRAM_CHANNEL")
             }
             Spacer(Modifier.height(24.dp))
         }

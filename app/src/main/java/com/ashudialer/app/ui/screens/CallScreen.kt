@@ -80,6 +80,9 @@ fun CallScreen(
     secondaryCallState: Int? = null,
     recordingAvailable: Boolean = false,
     isRecording: Boolean = false,
+    // True when the running recording was started by the Auto-record setting
+    // (not by tapping Record). Only changes the wording of the menu row.
+    autoRecordActive: Boolean = false,
     recordingMode: RecordingMode? = null,
     recordingSeconds: Int = 0,
     recordingLooksSilent: Boolean = false,
@@ -439,6 +442,7 @@ fun CallScreen(
                     isOnHold = isOnHold,
                     recordingAvailable = recordingAvailable,
                     isRecording = isRecording,
+                    autoRecordActive = autoRecordActive,
                     availableAudioRoutes = availableAudioRoutes,
                     currentAudioRoute = currentAudioRoute,
                     onToggleRecording = onToggleRecording,
@@ -813,6 +817,7 @@ private fun MoreActionsSheet(
     isOnHold: Boolean,
     recordingAvailable: Boolean,
     isRecording: Boolean,
+    autoRecordActive: Boolean,
     availableAudioRoutes: List<AudioRoute>,
     currentAudioRoute: AudioRoute,
     onToggleRecording: () -> Unit,
@@ -843,7 +848,11 @@ private fun MoreActionsSheet(
         if (recordingAvailable) {
             MoreActionRow(
                 icon = if (isRecording) Icons.Filled.Stop else Icons.Filled.FiberManualRecord,
-                label = if (isRecording) "Stop recording" else "Record call",
+                label = when {
+                    isRecording && autoRecordActive -> "Auto call recording active - tap to stop"
+                    isRecording -> "Stop recording"
+                    else -> "Record call"
+                },
                 palette = palette,
                 onClick = { onToggleRecording(); onDismiss() }
             )

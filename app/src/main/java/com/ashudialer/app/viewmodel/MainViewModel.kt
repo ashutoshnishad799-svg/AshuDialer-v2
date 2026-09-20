@@ -297,12 +297,30 @@ class MainViewModel(
     fun privateSpaceRecordings(context: android.content.Context): List<java.io.File> =
         com.ashudialer.app.telecom.CallRecorder.listPrivateSpaceRecordings(context)
 
-    fun moveRecordingsToPrivateSpace(context: android.content.Context, files: List<java.io.File>, onDone: () -> Unit) {
+    /**
+     * Moves the given recordings into Private Space, and returns how many were
+     * actually moved via [onDone].
+     *
+     * DATA-LOSS GUARD: recordings are moved into an app-private folder that can
+     * only be reached through the Private Space screens. If Private Space has
+     * never been set up (no password yet) there is nothing to unlock and no
+     * screen that would show those files, so moving them would make them
+     * effectively disappear. In that case nothing is moved and [onDone] gets 0.
+     * The UI checks this first and sends the person to set Private Space up;
+     * this check is the backstop so no other caller can lose files either.
+     */
+    fun moveRecordingsToPrivateSpace(context: android.content.Context, files: List<java.io.File>, onDone: (Int) -> Unit) {
         viewModelScope.launch {
-            files.forEach { file ->
-                com.ashudialer.app.telecom.CallRecorder.moveToPrivateSpace(context, file)
+            val setUp = privateSpaceRepository.isSetUp.first()
+            if (!setUp) {
+                onDone(0)
+                return@launch
             }
-            onDone()
+            var moved = 0
+            files.forEach { file ->
+                if (com.ashudialer.app.telecom.CallRecorder.moveToPrivateSpace(context, file) != null) moved++
+            }
+            onDone(moved)
         }
     }
 
@@ -613,6 +631,10 @@ class MainViewModel(
 
     fun setShowPhoneNumbers(enabled: Boolean) {
         viewModelScope.launch { appSettingsRepository.setShowPhoneNumbers(enabled) }
+    }
+
+    fun setGroupRecentsByDay(enabled: Boolean) {
+        viewModelScope.launch { appSettingsRepository.setGroupRecentsByDay(enabled) }
     }
 
     fun setUseRelativeDate(enabled: Boolean) {

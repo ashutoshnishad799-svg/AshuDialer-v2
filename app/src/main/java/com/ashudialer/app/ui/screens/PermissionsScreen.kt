@@ -1,11 +1,21 @@
 package com.ashudialer.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -15,33 +25,41 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.OemPermissionHelper
+import com.ashudialer.app.ui.components.glassCard
 import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
-import com.ashudialer.app.ui.components.glassCard
+import kotlinx.coroutines.delay
 
 /**
  * The post-onboarding setup checklist for the actual dialer only: phone/call
  * permissions and the default-dialer role. Call-recording/Shizuku setup is
  * deliberately kept out of this gate and lives in the dedicated recording
- * setup flow so a normal user never needs Shizuku just to use the dialer.
+ * setup flow, so a normal user never needs Shizuku just to use the dialer.
  *
- * Every card's status is re-read on every resume by MainActivity, the same
- * fix applied to isDefaultDialer/
- * hasPermissions in MainActivity and for the identical reason: any of
- * these can change from outside this screen entirely - granting phone
- * permissions from a system dialog, setting the default dialer from
- * Settings, flashing a root module and rebooting - and this screen must
- * reflect whichever of those actually happened by the time the person is
- * looking at it again, not a stale snapshot from when it first appeared.
+ * The lock-screen row is informational and optional: it never blocks
+ * finishing setup. It only appears on Android 14+ where "Full screen
+ * notifications" is a separate switch that can be off, in which case an
+ * incoming call on a locked phone shows as a small banner instead of the
+ * full call screen.
+ *
+ * Each row's status is re-read by MainActivity on every resume, so returning
+ * from a system dialog or Settings updates the checkmarks immediately.
  */
 @Composable
 fun PermissionsScreen(
@@ -54,6 +72,31 @@ fun PermissionsScreen(
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
+    val context = LocalContext.current
+
+    // Keep this screen from being closed by an accidental back press in the
+    // middle of first-time setup (there is no earlier step to return to).
+    androidx.activity.compose.BackHandler(enabled = true) {}
+
+    // Full-screen-intent state is re-read whenever the screen resumes, since
+    // the switch lives in system Settings and changes outside this screen.
+    var fullScreenOk by remember { mutableStateOf(OemPermissionHelper.canUseFullScreenIntent(context)) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                fullScreenOk = OemPermissionHelper.canUseFullScreenIntent(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Rows slide/fade in one after another instead of all appearing at once.
+    var show by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { show = true }
+
+    val allDone = hasPermissions && isDefaultDialer
 
     Column(modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
         Row(
@@ -77,43 +120,120 @@ fun PermissionsScreen(
         }
 
         Column(
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(Modifier.height(12.dp))
+
+            // Header badge: a soft ring around the shield. The ring turns
+            // to the "done" colour once both required steps are complete.
+            val ringColor by animateColorAsState(
+                targetValue = if (allDone) palette.callGreen else palette.accent,
+                animationSpec = tween(500),
+                label = "ring"
+            )
             Box(
-                modifier = Modifier.size(96.dp).clip(CircleShape).background(palette.accentSoft),
+                modifier = Modifier
+                    .size(104.dp)
+                    .clip(CircleShape)
+                    .background(ringColor.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Shield, contentDescription = null, tint = palette.accent, modifier = Modifier.size(44.dp))
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .background(palette.accentSoft),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (allDone) Icons.Filled.CheckCircle else Icons.Filled.Shield,
+                        contentDescription = null,
+                        tint = ringColor,
+                        modifier = Modifier.size(38.dp)
+                    )
+                }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(22.dp))
             Text(
-                "Set up Ashu Dialer",
+                if (allDone) "You're all set" else "Set up Ashu Dialer",
                 fontSize = 26.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary,
                 textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
-                "A few quick steps to make Ashu Dialer your complete calling app.",
-                fontSize = 14.sp, color = palette.textSecondary, textAlign = TextAlign.Center
+                if (allDone) "Everything needed for calling is ready."
+                else "Two quick steps and Ashu Dialer becomes your calling app.",
+                fontSize = 14.sp, color = palette.textSecondary, textAlign = TextAlign.Center,
+                lineHeight = 20.sp
             )
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(26.dp))
 
-            SetupChecklistItem(
-                icon = Icons.Filled.Phone,
-                title = "Phone & call access",
-                done = hasPermissions,
-                palette = palette
-            )
+            StaggeredRow(visible = show, delayMillis = 0) {
+                SetupChecklistItem(
+                    icon = Icons.Filled.Phone,
+                    title = "Phone & call access",
+                    subtitle = "Lets the app place and answer calls",
+                    done = hasPermissions,
+                    palette = palette
+                )
+            }
             Spacer(Modifier.height(12.dp))
-            SetupChecklistItem(
-                icon = Icons.Filled.Shield,
-                title = "Default dialer",
-                done = isDefaultDialer,
-                palette = palette
-            )
-            if (hasPermissions && isDefaultDialer && OemPermissionHelper.isLikelyMiui()) {
+            StaggeredRow(visible = show, delayMillis = 90) {
+                SetupChecklistItem(
+                    icon = Icons.Filled.Shield,
+                    title = "Default dialer",
+                    subtitle = "Required so calls open in Ashu Dialer",
+                    done = isDefaultDialer,
+                    palette = palette
+                )
+            }
+
+            // Optional row, only when there is something to fix.
+            if (!fullScreenOk) {
+                Spacer(Modifier.height(12.dp))
+                StaggeredRow(visible = show, delayMillis = 180) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassCard(palette, 16.dp)
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier.size(38.dp).clip(CircleShape).background(palette.accentSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.Lock, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Calls on the lock screen", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+                                Text("Optional", fontSize = 12.sp, color = palette.textSecondary)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "\"Full screen notifications\" is off for Ashu Dialer, so a call on a locked phone shows only a small banner " +
+                                "instead of the full call screen. Turn it on to see the full screen.",
+                            fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = { OemPermissionHelper.openFullScreenIntentSettings(context) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Open setting")
+                        }
+                    }
+                }
+            }
+
+            if (allDone && OemPermissionHelper.isLikelyMiui()) {
                 Spacer(Modifier.height(20.dp))
                 Column(
                     modifier = Modifier
@@ -125,14 +245,14 @@ fun PermissionsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Warning, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("One more step for MIUI", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                        Text("One more step for MIUI / HyperOS", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "MIUI can keep sending calls to its own Phone app even after you set Ashu Dialer as default. " +
                             "Turn on Autostart and remove battery restrictions for Ashu Dialer so calls, the lock-screen " +
                             "call UI, and missed-call notifications come from this app instead of MIUI's.",
-                        fontSize = 12.5.sp, color = palette.textSecondary
+                        fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
                     )
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(
@@ -143,6 +263,7 @@ fun PermissionsScreen(
                     }
                 }
             }
+            Spacer(Modifier.height(16.dp))
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp)) {
@@ -165,13 +286,10 @@ fun PermissionsScreen(
                         Text("Set as default dialer", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     }
                     Spacer(Modifier.height(10.dp))
-                    // Manual escape hatch: if the tap above opens a system
-                    // dialog that never comes back (seen on some MIUI
-                    // builds - see the comment on
-                    // OemPermissionHelper.openDefaultAppsSettings for why),
-                    // this is how the person gets to the exact same result
-                    // without needing to force-close the app and hunt
-                    // through Settings themselves.
+                    // Manual escape hatch: if the tap above opens a system dialog
+                    // that never comes back (seen on some MIUI builds), this
+                    // reaches the exact same result through Settings, which does
+                    // not depend on that dialog returning a result.
                     OutlinedButton(
                         onClick = onOpenDefaultAppsSettings,
                         modifier = Modifier.fillMaxWidth()
@@ -196,13 +314,40 @@ fun PermissionsScreen(
     }
 }
 
+/** Fades and slides its content up into place after [delayMillis]. */
+@Composable
+private fun StaggeredRow(visible: Boolean, delayMillis: Int, content: @Composable () -> Unit) {
+    var ready by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            delay(delayMillis.toLong())
+            ready = true
+        }
+    }
+    AnimatedVisibility(
+        visible = ready,
+        enter = fadeIn(tween(320)) + slideInVertically(
+            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
+            initialOffsetY = { it / 3 }
+        )
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun SetupChecklistItem(
     icon: ImageVector,
     title: String,
+    subtitle: String,
     done: Boolean,
     palette: DialerPalette
 ) {
+    val badgeColor by animateColorAsState(
+        targetValue = if (done) palette.callGreen.copy(alpha = 0.16f) else palette.accentSoft,
+        animationSpec = tween(350),
+        label = "badge"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -211,17 +356,20 @@ private fun SetupChecklistItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(38.dp).clip(CircleShape).background(palette.accentSoft),
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(badgeColor),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
+            Icon(icon, contentDescription = null, tint = if (done) palette.callGreen else palette.accent, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.width(14.dp))
-        Text(title, fontSize = 15.sp, color = palette.textPrimary, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+            Text(subtitle, fontSize = 12.sp, color = palette.textSecondary, lineHeight = 16.sp)
+        }
         if (done) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = "Done", tint = palette.accent, modifier = Modifier.size(22.dp))
+            Icon(Icons.Filled.CheckCircle, contentDescription = "Done", tint = palette.callGreen, modifier = Modifier.size(24.dp))
         } else {
-            Icon(Icons.Filled.Warning, contentDescription = "Not set up yet", tint = palette.danger, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.Warning, contentDescription = "Not set up yet", tint = palette.danger, modifier = Modifier.size(22.dp))
         }
     }
 }

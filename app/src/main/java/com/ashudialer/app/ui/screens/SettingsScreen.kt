@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +42,7 @@ fun SettingsScreen(
     onOpenIncomingCallStyle: () -> Unit,
     onToggleCallRecording: (Boolean) -> Unit,
     onToggleAutoRecordAll: (Boolean) -> Unit,
+    onOpenRecordingSettings: () -> Unit = {},
     onToggleLedFlash: (Boolean) -> Unit,
     onToggleVibrateOnButton: (Boolean) -> Unit,
     onToggleKeepCallsInNotifications: (Boolean) -> Unit,
@@ -49,6 +51,7 @@ fun SettingsScreen(
     onToggleShowThumbnails: (Boolean) -> Unit,
     onToggleShowPhoneNumbers: (Boolean) -> Unit,
     onToggleRelativeDate: (Boolean) -> Unit,
+    onToggleGroupRecentsByDay: (Boolean) -> Unit = {},
     onToggleShowSearchBar: (Boolean) -> Unit,
     onSelectFontSize: (Int) -> Unit,
     onExportCallHistory: () -> Unit,
@@ -184,22 +187,39 @@ fun SettingsScreen(
                     SettingsCard(palette) {
                         ToggleRow(
                             icon = Icons.Filled.Mic, title = "Enable call recording",
-                            subtitle = "Record button appears during calls",
+                            subtitle = "Adds a Record button to the call screen. Needs a one-time Shizuku setup.",
                             checked = settings.callRecordingEnabled, palette = palette, onToggle = onToggleCallRecording
                         )
                         HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
                         ToggleRow(
                             icon = Icons.Filled.RecordVoiceOver, title = "Auto-record all calls",
-                            subtitle = "Starts recording the moment a call connects",
+                            subtitle = if (settings.callRecordingEnabled)
+                                "Starts recording by itself when a call is answered"
+                            else
+                                "Turn on \"Enable call recording\" first",
                             checked = settings.autoRecordAll, enabled = settings.callRecordingEnabled,
                             palette = palette, onToggle = onToggleAutoRecordAll
                         )
+                        HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+                        androidx.compose.foundation.layout.Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenRecordingSettings() }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Filled.Settings, contentDescription = null, tint = palette.accent, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("Recording settings", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+                                Text(
+                                    "Audio source, format, where files are saved, file names, WhatsApp / Telegram calls",
+                                    fontSize = 12.sp, color = palette.textSecondary, lineHeight = 16.sp
+                                )
+                            }
+                            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = palette.textSecondary)
+                        }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        "Call recording is available only in the privileged/root build.",
-                        fontSize = 12.sp, color = palette.textSecondary, modifier = Modifier.padding(horizontal = 4.dp), lineHeight = 17.sp
-                    )
                 }
             }
 
@@ -223,6 +243,12 @@ fun SettingsScreen(
                         title = "Relative date",
                         subtitle = "\"Yesterday\" instead of the full date where possible",
                         checked = settings.useRelativeDate, palette = palette, onToggle = onToggleRelativeDate
+                    )
+                    HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+                    ToggleRow(
+                        title = "Group calls by day",
+                        subtitle = "Show one row per number per day, with a count, even if you called other people in between",
+                        checked = settings.groupRecentsByDay, palette = palette, onToggle = onToggleGroupRecentsByDay
                     )
                 }
             }

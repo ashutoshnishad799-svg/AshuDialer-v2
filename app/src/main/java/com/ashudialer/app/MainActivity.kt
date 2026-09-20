@@ -279,6 +279,14 @@ class MainActivity : ComponentActivity() {
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             var selectedTab by remember { mutableStateOf(DialerTab.RECENT) }
             var recordingGuideOpenedFromSettings by remember { mutableStateOf(false) }
+            // True while the recording setup/settings screens were opened from Settings
+            // (not from the Recordings list). Every Back in that flow then returns to
+            // Settings instead of dropping the person into the Recordings list, which
+            // is what made the flow feel like it went somewhere unexpected.
+            var recordingFlowFromSettings by remember { mutableStateOf(false) }
+            // Set when the master switch was tapped ON but Shizuku isn't ready yet: the
+            // switch is turned on automatically the moment setup is completed.
+            var enableRecordingWhenReady by remember { mutableStateOf(false) }
             // The initial tab is RECENT, so clear any missed-call badge/
             // notification count right away too (covers the case where the
             // person opens the app itself, not just when they tap the tab).
@@ -692,7 +700,19 @@ class MainActivity : ComponentActivity() {
 
             fun moveRecordingsToPrivateSpace(files: List<java.io.File>) {
                 if (!com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED) return
-                viewModel.moveRecordingsToPrivateSpace(context, files) {
+                viewModel.moveRecordingsToPrivateSpace(context, files) { moved ->
+                    if (moved == 0 && files.isNotEmpty()) {
+                        // Not set up (or the move failed). Nothing was touched, so say why and
+                        // take the person to Private Space, which starts with the setup screen.
+                        Toast.makeText(
+                            context,
+                            "Set up Private Space first, then move recordings into it",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        privateSpaceStep = PrivateSpaceStep.CHECKING
+                        overlay = OverlayScreen.PRIVATE_SPACE
+                        return@moveRecordingsToPrivateSpace
+                    }
                     // Both lists refresh: the moved files vanish from the
                     // public list (the point of the move) and reappear in
                     // Private Space's own recordings list the next time that
@@ -790,9 +810,19 @@ class MainActivity : ComponentActivity() {
                             overlay = OverlayScreen.NONE
                         }
                         OverlayScreen.RECORDING_GUIDE -> overlay = if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
-                        OverlayScreen.RECORDING_SETTINGS -> overlay = OverlayScreen.RECORDINGS
-                        OverlayScreen.RECORDING_SETUP, OverlayScreen.RECORDING_APP_CALLS_SETUP ->
-                            overlay = OverlayScreen.RECORDING_SETTINGS
+                        OverlayScreen.RECORDING_SETTINGS -> overlay =
+                            if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
+                        OverlayScreen.RECORDING_SETUP -> {
+                            if (enableRecordingWhenReady) {
+                                enableRecordingWhenReady = false
+                                if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
+                                    viewModel.setCallRecordingEnabled(true)
+                                }
+                            }
+                            overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS
+                        }
+                        OverlayScreen.RECORDING_APP_CALLS_SETUP ->
+                            overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS
                         OverlayScreen.CALL_INSIGHTS -> {
                             // Same one-step-at-a-time pattern as Private
                             // Space above: land back on the day list first
@@ -1018,6 +1048,7 @@ class MainActivity : ComponentActivity() {
                                         showContactThumbnails = settings.showContactThumbnails,
                                         showPhoneNumbers = settings.showPhoneNumbers,
                                         useRelativeDate = settings.useRelativeDate,
+                                        groupByDay = settings.groupRecentsByDay,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                     DialerTab.CONTACTS -> ContactsScreen(
@@ -1104,6 +1135,7 @@ class MainActivity : ComponentActivity() {
                                                 "SIM Routing" -> overlay = OverlayScreen.SIM_ROUTING
                                                 "Vibration Patterns" -> overlay = OverlayScreen.VIBRATION_PATTERNS
                                                 "Recordings" -> if (com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED) {
+                                                    recordingFlowFromSettings = false
                                                     recordings = com.ashudialer.app.telecom.CallRecorder.listRecordings(context)
                                                     overlay = OverlayScreen.RECORDINGS
                                                 }
@@ -1364,10 +1396,22 @@ class MainActivity : ComponentActivity() {
                                                     // Shizuku/recording prerequisite inside the
                                                     // dedicated recording flow instead of putting it
                                                     // on the normal dialer setup screen.
-                                                    overlay = OverlayScreen.RECORDING_SETUP
+                                                    if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
+                                                        // Already set up: just turn it on, no detour.
+                                                        viewModel.setCallRecordingEnabled(true)
+                                                    } else {
+                                                        recordingFlowFromSettings = true
+                                                        enableRecordingWhenReady = true
+                                                        overlay = OverlayScreen.RECORDING_SETUP
+                                                    }
                                                 } else {
+                                                    enableRecordingWhenReady = false
                                                     viewModel.setCallRecordingEnabled(false)
                                                 }
+                                            },
+                                            onOpenRecordingSettings = {
+                                                recordingFlowFromSettings = true
+                                                overlay = OverlayScreen.RECORDING_SETTINGS
                                             },
                                             onToggleAutoRecordAll = { enabled -> viewModel.setAutoRecordAll(enabled) },
                                             onToggleLedFlash = { enabled -> viewModel.setLedFlashForAlerts(enabled) },
@@ -1378,6 +1422,7 @@ class MainActivity : ComponentActivity() {
                                             onToggleShowThumbnails = { enabled -> viewModel.setShowContactThumbnails(enabled) },
                                             onToggleShowPhoneNumbers = { enabled -> viewModel.setShowPhoneNumbers(enabled) },
                                             onToggleRelativeDate = { enabled -> viewModel.setUseRelativeDate(enabled) },
+                                            onToggleGroupRecentsByDay = { enabled -> viewModel.setGroupRecentsByDay(enabled) },
                                             onToggleShowSearchBar = { enabled -> viewModel.setShowSearchBar(enabled) },
                                             onSelectFontSize = { index -> viewModel.setFontSizeIndex(index) },
                                             onExportCallHistory = {
@@ -1486,12 +1531,18 @@ class MainActivity : ComponentActivity() {
                                                 recordingGuideOpenedFromSettings = false
                                                 overlay = OverlayScreen.RECORDING_GUIDE
                                             },
-                                            onOpenRecordingSettings = { overlay = OverlayScreen.RECORDING_SETTINGS },
-                                            onOpenRecordingSetup = { overlay = OverlayScreen.RECORDING_SETUP },
+                                            onOpenRecordingSettings = {
+                                                recordingFlowFromSettings = false
+                                                overlay = OverlayScreen.RECORDING_SETTINGS
+                                            },
+                                            onOpenRecordingSetup = {
+                                                recordingFlowFromSettings = false
+                                                overlay = OverlayScreen.RECORDING_SETUP
+                                            },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_SETTINGS -> com.ashudialer.app.ui.screens.RecordingSettingsScreen(
-                                            onBack = { overlay = OverlayScreen.RECORDINGS },
+                                            onBack = { overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS },
                                             onOpenGuide = {
                                                 recordingGuideOpenedFromSettings = false
                                                 overlay = OverlayScreen.RECORDING_GUIDE
@@ -1501,7 +1552,18 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_SETUP -> com.ashudialer.app.ui.screens.ShizukuSetupScreen(
-                                            onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
+                                            onBack = {
+                                                // The master switch was tapped ON but Shizuku wasn't ready.
+                                                // If the person finished setup, turn it on now instead of
+                                                // making them come back and flip it a second time.
+                                                if (enableRecordingWhenReady) {
+                                                    enableRecordingWhenReady = false
+                                                    if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
+                                                        viewModel.setCallRecordingEnabled(true)
+                                                    }
+                                                }
+                                                overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS
+                                            },
                                             onOpenGuide = {
                                                 recordingGuideOpenedFromSettings = false
                                                 overlay = OverlayScreen.RECORDING_GUIDE
@@ -1509,7 +1571,7 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.RECORDING_APP_CALLS_SETUP -> com.ashudialer.app.ui.screens.AppCallRecordingSetupScreen(
-                                            onBack = { overlay = OverlayScreen.RECORDING_SETTINGS },
+                                            onBack = { overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS },
                                             onOpenSetup = { overlay = OverlayScreen.RECORDING_SETUP },
                                             modifier = Modifier.fillMaxSize()
                                         )

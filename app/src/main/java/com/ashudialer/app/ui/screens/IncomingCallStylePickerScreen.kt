@@ -14,6 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,6 +50,9 @@ import com.ashudialer.app.ui.theme.LocalDialerPalette
  * unrecognized, matching IncomingCallScreen's own dispatcher fallback.
  */
 fun incomingCallStyleDisplayName(styleId: String): String = when (styleId) {
+    "classic" -> "Classic White"
+    "hyper" -> "HyperOS"
+    "ios" -> "iPhone"
     "orbit" -> "Orbit"
     "pulse" -> "Pulse"
     else -> "Aurora"
@@ -60,6 +65,9 @@ private data class IncomingCallStyleOption(
 )
 
 private val IncomingCallStyleOptions = listOf(
+    IncomingCallStyleOption("classic", "Classic White", "Clean white screen like a stock dialer"),
+    IncomingCallStyleOption("hyper", "HyperOS", "Big centered name, two round buttons - Xiaomi style"),
+    IncomingCallStyleOption("ios", "iPhone", "Dark screen with Decline / Accept, like an iPhone"),
     IncomingCallStyleOption("aurora", "Aurora", "Soft multi-color glow, swipe up to answer"),
     IncomingCallStyleOption("orbit", "Orbit", "Calm rotating glass rings, drag inward to answer"),
     IncomingCallStyleOption("pulse", "Pulse", "Sonar-style glass ripples, tap the glass pills")
@@ -109,6 +117,7 @@ fun IncomingCallStylePickerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -202,6 +211,15 @@ private fun StylePreviewThumbnail(styleId: String, palette: DialerPalette) {
     val backdrop = Color(android.graphics.Color.HSVToColor(hsv))
     val hue = hsv[0]
 
+    if (styleId == "classic" || styleId == "hyper" || styleId == "ios") {
+        // Phone-shaped preview of the REAL screen (same composable the call uses,
+        // in isPreview mode: no entrance animation, no quick-reply row, taps do
+        // nothing). Rendered at a phone size and scaled down so the text and
+        // buttons keep their true proportions instead of being redrawn as a mock.
+        SystemStylePreview(styleId)
+        return
+    }
+
     Box(
         modifier = Modifier
             .size(76.dp)
@@ -213,6 +231,47 @@ private fun StylePreviewThumbnail(styleId: String, palette: DialerPalette) {
             "orbit" -> OrbitPreviewMotif(hue)
             "pulse" -> PulsePreviewMotif(hue)
             else -> AuroraPreviewMotif(hue)
+        }
+    }
+}
+
+/**
+ * Real incoming-call screen at 360x720 "phone" size, scaled to ~ 84x168 dp.
+ * layout(...) reports the scaled size to the parent, so the card lays out at the
+ * small size while the content inside is measured at full phone size.
+ */
+@Composable
+private fun SystemStylePreview(styleId: String) {
+    val targetW = 84.dp
+    val targetH = 168.dp
+    val scale = 84f / 360f
+    Box(
+        modifier = Modifier
+            .size(targetW, targetH)
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .requiredSize(360.dp, 720.dp)
+                .align(Alignment.TopStart)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                }
+        ) {
+            IncomingCallScreen(
+                callerName = "Aarav Sharma",
+                callerNumber = "+91 98765 43210",
+                isSavedContact = true,
+                style = styleId,
+                onAccept = {},
+                onDecline = {},
+                onQuickMessage = {},
+                modifier = Modifier.fillMaxSize(),
+                isPreview = true
+            )
         }
     }
 }

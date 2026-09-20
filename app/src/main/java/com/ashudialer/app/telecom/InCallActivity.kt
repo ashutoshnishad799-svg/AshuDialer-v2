@@ -238,6 +238,10 @@ class InCallActivity : ComponentActivity() {
             var isEndingCall by remember { mutableStateOf(false) }
             var isRecording by remember { mutableStateOf(com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && app.callRecorder.isRecording) }
             var recordingMode by remember { mutableStateOf(app.callRecorder.currentMode()) }
+            // True only when the person tapped "Record call" themselves during this call.
+            // A recording that is running while this is false and the Auto-record setting
+            // is on was started by auto-record, and the menu says so.
+            var manualRecordStarted by remember { mutableStateOf(false) }
             var recordingSeconds by remember { mutableStateOf(app.callRecorder.elapsedSeconds()) }
             // True once recording has run silent (no getMaxAmplitude signal
             // above the noise floor) for several consecutive polls in a
@@ -382,25 +386,15 @@ class InCallActivity : ComponentActivity() {
             }
 
 
-            LaunchedEffect(call) {
-                val watched = call ?: return@LaunchedEffect
-                if (watched.state != Call.STATE_DIALING && watched.state != Call.STATE_CONNECTING) return@LaunchedEffect
-
-                val startedAt = SystemClock.elapsedRealtime()
-                while (true) {
-                    kotlinx.coroutines.delay(150)
-                    val live = PixelInCallService.currentCall
-                    val state = live?.state
-                    if (live == null || live !== watched || state == Call.STATE_DISCONNECTED) return@LaunchedEffect
-                    if (state == Call.STATE_ACTIVE || state == Call.STATE_RINGING) return@LaunchedEffect
-                    if (SystemClock.elapsedRealtime() - startedAt >= DIALING_TIMEOUT_MS) {
-                        Log.w("InCallActivity", "Dialing/connect timeout; disconnecting call and closing UI")
-                        runCatching { watched.disconnect() }
-                        closeCallUiImmediately()
-                        return@LaunchedEffect
-                    }
-                }
-            }
+            // NOTE: there used to be a "dialing timeout" watchdog here that called
+            // Call.disconnect() after 7.5 s if the call was still DIALING/CONNECTING.
+            // That was the cause of "I place a call, it rings 2-4 seconds and then
+            // cuts by itself": for OUTGOING calls Android keeps the Call in
+            // STATE_DIALING for the whole time the far end is ringing (STATE_RINGING
+            // is incoming-only), so the watchdog could not tell "ringing normally"
+            // from "stuck" and hung up live calls. The carrier/Telecom already ends
+            // a genuinely unanswered call by itself (typically after 30-60 s), so the
+            // watchdog is gone; the person can always tap End call themselves.
 
             LaunchedEffect(callState) {
                 if (callState == Call.STATE_DISCONNECTED) {
@@ -513,6 +507,7 @@ class InCallActivity : ComponentActivity() {
                 if (pendingAutoAnswer && call != null && callState == Call.STATE_RINGING) {
                     val current = call ?: return@LaunchedEffect
                     consumeAutoAnswer()
+                    dismissKeyguardForCall()
                     current.answer(answerVideoStateFor(current))
                     logCallAsync(
                         app,
@@ -626,6 +621,7 @@ class InCallActivity : ComponentActivity() {
                 // Never touch the microphone while the call is ringing, dialing,
                 // ended, or otherwise not actually connected.
                 if (callState != Call.STATE_ACTIVE) return
+                manualRecordStarted = true
                 if (app.callRecorder.isRecording) {
                     isRecording = true
                     recordingMode = app.callRecorder.currentMode()
@@ -660,6 +656,7 @@ class InCallActivity : ComponentActivity() {
             }
 
             fun stopRecording() {
+                manualRecordStarted = false
                 // stop() also does blocking I/O (MediaRecorder.stop() plus
                 // copying the file into public storage) - same reasoning as
                 // startRecording() above.
@@ -815,6 +812,7 @@ class InCallActivity : ComponentActivity() {
                                 spamAssessment = spamAssessment,
                                 style = settings.incomingCallStyle,
                                 onAccept = {
+                                    dismissKeyguardForCall()
                                     current.answer(answerVideoStateFor(current))
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)
                                 },
@@ -891,6 +889,7 @@ class InCallActivity : ComponentActivity() {
                                 secondaryCallState = secondaryState,
                                 recordingAvailable = com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && settings.callRecordingEnabled && callState == Call.STATE_ACTIVE,
                                 isRecording = isRecording,
+                                autoRecordActive = isRecording && !manualRecordStarted && settings.autoRecordAll,
                                 recordingMode = recordingMode,
                                 recordingSeconds = recordingSeconds,
                                 recordingLooksSilent = recordingLooksSilent,
@@ -1130,6 +1129,47 @@ class InCallActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Asks the system to dismiss the keyguard so that, after tapping Answer on
+     * a locked phone, the person lands straight in the call instead of being
+     * sent to the PIN / pattern / fingerprint screen first.
+     *
+     * setShowWhenLocked(true) only lets this Activity be DRAWN above the lock
+     * screen. It does not unlock anything, which is why the call could ring on
+     * the lock screen but then demand the password on Answer. Since Android 8
+     * the supported way to drop the keyguard for an Activity that is on screen
+     * is KeyguardManager.requestDismissKeyguard(). For an incoming call the
+     * platform lets a call-handling default dialer do this without a prompt
+     * (the "answer over the lock screen" behaviour every stock dialer has).
+     * If the device refuses (e.g. secure lock + no biometric grant), the
+     * callback reports it and the call simply stays on the lock-screen UI -
+     * the call itself is never affected.
+     */
+    private fun dismissKeyguardForCall() {
+        try {
+            val km = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager ?: return
+            if (!km.isKeyguardLocked) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+                    override fun onDismissError() {
+                        Log.w("InCallActivity", "requestDismissKeyguard: dismiss error")
+                    }
+                    override fun onDismissSucceeded() {
+                        Log.i("InCallActivity", "requestDismissKeyguard: dismissed")
+                    }
+                    override fun onDismissCancelled() {
+                        Log.i("InCallActivity", "requestDismissKeyguard: cancelled")
+                    }
+                })
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+            }
+        } catch (t: Throwable) {
+            Log.w("InCallActivity", "dismissKeyguardForCall failed", t)
+        }
+    }
+
     private fun setupLockScreenAndWakeFlags(disableProximitySensor: Boolean) {
         // These flags are deliberately applied to the real call activity, not
         // only to the notification. This makes the UI eligible to appear over
@@ -1196,7 +1236,6 @@ class InCallActivity : ComponentActivity() {
         // surface. Telecom normally supplies a Call almost immediately; this
         // is only a defensive hand-off ceiling for OEM/dual-SIM races.
         private const val CALL_OBJECT_HANDOFF_TIMEOUT_MS = 1800L
-        private const val DIALING_TIMEOUT_MS = 7500L
 
         /**
          * Boolean intent extra: when true, this Activity answers the ringing

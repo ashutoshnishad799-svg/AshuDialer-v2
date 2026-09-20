@@ -41,12 +41,16 @@ class RecordingPrefs(private val context: Context) {
         get() = prefs.getBoolean("call_recording_enabled", false)
         set(v) = prefs.edit { putBoolean("call_recording_enabled", v) }
 
+    // DEFAULT IS false ON PURPOSE. Turning the master "Call recording" switch on
+    // must only make manual recording available (the Record button on the call
+    // screen). It must NOT silently start recording every call - that has to be a
+    // separate, visible opt-in ("Auto-record all calls").
     var autoRecordIncoming: Boolean
-        get() = prefs.getBoolean("auto_record_incoming", true)
+        get() = prefs.getBoolean("auto_record_incoming", false)
         set(v) = prefs.edit { putBoolean("auto_record_incoming", v) }
 
     var autoRecordOutgoing: Boolean
-        get() = prefs.getBoolean("auto_record_outgoing", true)
+        get() = prefs.getBoolean("auto_record_outgoing", false)
         set(v) = prefs.edit { putBoolean("auto_record_outgoing", v) }
 
     /** Wait until the call is actually answered before recording (skips ringing / unanswered calls). */
@@ -121,16 +125,19 @@ class RecordingPrefs(private val context: Context) {
         get() = prefs.getBoolean("show_recording_notification", true)
         set(v) = prefs.edit { putBoolean("show_recording_notification", v) }
 
+    // Off by default: an "Open / Share / Delete" notification after EVERY call is
+    // noise for anyone who auto-records. Still one toggle away in Recording settings.
     var postRecordingActionsNotification: Boolean
-        get() = prefs.getBoolean("post_recording_notification", true)
+        get() = prefs.getBoolean("post_recording_notification", false)
         set(v) = prefs.edit { putBoolean("post_recording_notification", v) }
 
     var vibrateOnStartStop: Boolean
         get() = prefs.getBoolean("vibrate_on_start_stop", true)
         set(v) = prefs.edit { putBoolean("vibrate_on_start_stop", v) }
 
+    // Off by default: the "Recording started / saved" pop-up appeared on every call.
     var showToasts: Boolean
-        get() = prefs.getBoolean("show_toasts", true)
+        get() = prefs.getBoolean("show_toasts", false)
         set(v) = prefs.edit { putBoolean("show_toasts", v) }
 
     // ---- Shizuku management -------------------------------------------------------------

@@ -45,6 +45,10 @@
     -->
     <queries>
         <package android:name="com.whatsapp" />
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="org.thunderdog.challegram" />
+        <package android:name="com.instagram.android" />
         <package android:name="moe.shizuku.manager" />
         <package android:name="moe.shizuku.privileged.api" />
     </queries>

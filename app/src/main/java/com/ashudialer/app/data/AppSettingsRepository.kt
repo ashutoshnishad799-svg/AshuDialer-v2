@@ -54,6 +54,10 @@ data class AppSettings(
     val showContactThumbnails: Boolean = true,
     val showPhoneNumbers: Boolean = false,
     val useRelativeDate: Boolean = true,
+    // Recents: fold every call to the same number on the same calendar day into one
+    // row (with a count), even when other numbers were called in between. Off by
+    // default so existing behaviour is unchanged; opt in from Settings.
+    val groupRecentsByDay: Boolean = false,
 
 
     val showSearchBar: Boolean = true,
@@ -92,6 +96,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyShowThumbnails = booleanPreferencesKey("show_contact_thumbnails")
     private val keyShowPhoneNumbers = booleanPreferencesKey("show_phone_numbers")
     private val keyRelativeDate = booleanPreferencesKey("use_relative_date")
+    private val keyGroupRecentsByDay = booleanPreferencesKey("group_recents_by_day")
     private val keyShowSearchBar = booleanPreferencesKey("show_search_bar")
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
     private val keyIncomingCallStyle = stringPreferencesKey("incoming_call_style")
@@ -135,6 +140,7 @@ class AppSettingsRepository(private val context: Context) {
             showContactThumbnails = prefs[keyShowThumbnails] ?: true,
             showPhoneNumbers = prefs[keyShowPhoneNumbers] ?: false,
             useRelativeDate = prefs[keyRelativeDate] ?: true,
+            groupRecentsByDay = prefs[keyGroupRecentsByDay] ?: false,
             showSearchBar = prefs[keyShowSearchBar] ?: true,
             fontSizeIndex = prefs[keyFontSizeIndex] ?: 1,
             incomingCallStyle = prefs[keyIncomingCallStyle] ?: "aurora",
@@ -227,6 +233,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setUseRelativeDate(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyRelativeDate] = enabled }
+    }
+
+    suspend fun setGroupRecentsByDay(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyGroupRecentsByDay] = enabled }
     }
 
     suspend fun setShowSearchBar(enabled: Boolean) {

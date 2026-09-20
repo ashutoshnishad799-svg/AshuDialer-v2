@@ -89,10 +89,24 @@ val OceanPalette = DialerPalette(
     id = "ocean",
     displayName = "Ocean Blue",
     isDark = false,
+    // DESIGN FIX for "default blue is one flat full-screen blue": the previous
+    // four stops (E4F3FF -> BFE0FF -> 7FBFFA -> 4A7FE8) were all the same blue
+    // hue at different lightness, which reads as a single tint, not a
+    // gradient. This one drifts across hues on purpose - a near-white sky top,
+    // a cool cyan band, a periwinkle middle and a deep indigo-violet bottom -
+    // so the top of the screen and the bottom look clearly different, the way
+    // the other themes do. Card, text and accent colours are unchanged, so
+    // contrast on every screen stays exactly as it was.
     background = Brush.verticalGradient(
-        colors = listOf(Color(0xFFE4F3FF), Color(0xFFBFE0FF), Color(0xFF7FBFFA), Color(0xFF4A7FE8))
+        colors = listOf(
+            Color(0xFFF2F8FF),   // sky white
+            Color(0xFFCDEBFF),   // pale cyan
+            Color(0xFF9DBEFF),   // periwinkle
+            Color(0xFF6C7CF0),   // soft indigo
+            Color(0xFF5A57D6)    // deep indigo-violet
+        )
     ),
-    solidBackground = Color(0xFFBFE0FF),
+    solidBackground = Color(0xFFCDEBFF),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.94f),
     cardBorder = Color(0xFFFFFFFF).copy(alpha = 0.65f),
     navBackground = Color(0xFFFFFFFF).copy(alpha = 0.9f),
@@ -104,8 +118,8 @@ val OceanPalette = DialerPalette(
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.96f),
     avatarBackground = Color(0xFFD3E7FF),
     callGreen = Color(0xFF34C759),
-    swatchStart = Color(0xFF6FC7FA),
-    swatchEnd = Color(0xFF2C56E8)
+    swatchStart = Color(0xFF8FD3FF),
+    swatchEnd = Color(0xFF5A57D6)
 )
 
 

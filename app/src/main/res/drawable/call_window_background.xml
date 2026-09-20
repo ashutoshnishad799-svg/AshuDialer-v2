@@ -8,7 +8,7 @@
     wrong attribute (windowBackgroundFallback) and never actually painted
     during this gap.
 
-    Changed from the accent blue (#1E6FE8) to the light first-frame Ocean background (#E4F3FF): that dark color
+    Changed from the accent blue (#1E6FE8) to the light first-frame Ocean background (#F2F8FF): that dark color
     was a reasonable choice when a dark theme was more prominent throughout
     the app, but with OceanPalette ("Ocean Blue") now confirmed as the app's
     actual default (a LIGHT theme - E4F3FF through 7FBFFA blues, see
@@ -23,5 +23,5 @@
     in-call Activity use this same drawable.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#E4F3FF" />
+    <solid android:color="#F2F8FF" />
 </shape>

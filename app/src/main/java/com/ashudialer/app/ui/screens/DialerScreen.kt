@@ -20,6 +20,7 @@ import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -88,14 +89,34 @@ private fun looksLikePhoneNumber(text: String): Boolean {
     if (trimmed.isEmpty() || trimmed.length > 25) return false
 
     val digitsOnly = trimmed.filter { it.isDigit() }
-    // Real-world phone numbers run roughly 7 (short local numbers) to 15
-    // (E.164's own maximum) digits.
-    if (digitsOnly.length < 7 || digitsOnly.length > 15) return false
+    // Accepted shapes only (per product decision - the paste chip should be
+    // rare and meaningful, not fire on any 7-digit string):
+    //   * 3-digit service codes (100, 112, 198 ...)
+    //   * 4-6 digit short codes / premium-rate numbers (e.g. 5xxxx SMS codes)
+    //     ONLY when written with a leading "*" or "#" (USSD) or a leading
+    //     "1"/"5"/"9" short-code style - kept conservative
+    //   * exactly 10 digits (Indian mobile / national format)
+    //   * exactly 12 digits (91 + 10-digit mobile), with or without "+"
+    //   * 11 digits starting with 0 (trunk-prefixed national) or 13 with "+91"-like
+    // Anything else (a 7-digit id, a 9-digit order number, a 16-digit card)
+    // no longer triggers the chip.
+    val len = digitsOnly.length
+    val startsWithUssd = trimmed.startsWith("*") || trimmed.startsWith("#")
+    val accepted = when {
+        len == 3 -> true
+        len in 4..6 -> startsWithUssd || trimmed.startsWith("1") || trimmed.startsWith("5") || trimmed.startsWith("9")
+        len == 10 -> true
+        len == 11 -> digitsOnly.startsWith("0")
+        len == 12 -> true
+        len == 13 -> trimmed.startsWith("+") || digitsOnly.startsWith("091")
+        else -> false
+    }
+    if (!accepted) return false
 
     // Every character besides the digits should be a formatting character a
     // real phone number would plausibly contain - not letters or punctuation
     // that would suggest this is prose with a number embedded in it.
-    val allowedFormatting = setOf('+', '-', '(', ')', ' ', '.')
+    val allowedFormatting = setOf('+', '-', '(', ')', ' ', '.', '*', '#')
     val nonDigitsAreFormatting = trimmed.all { it.isDigit() || it in allowedFormatting }
     if (!nonDigitsAreFormatting) return false
 
@@ -158,14 +179,44 @@ fun DialerScreen(
     var clipboardHasNumber by remember { mutableStateOf(false) }
     LaunchedEffect(number) {
         if (number.isEmpty()) {
+            // Android 12+ shows its own "<app> pasted from your clipboard"
+            // toast every time an app reads the clip *contents* (primaryClip).
+            // That toast is drawn by the system and cannot be turned off, so
+            // the only fix is to read the contents as rarely as possible:
+            //   1. primaryClipDescription is metadata only - reading it never
+            //      shows the toast. Bail out unless the clip is plain text.
+            //   2. Only read the contents when the clip is NEW since the last
+            //      time we looked (its timestamp changed). Opening the dialer
+            //      ten times with the same old clip now reads it at most once
+            //      instead of ten times.
             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-            val clipText = clipboard?.primaryClip
-                ?.takeIf { it.itemCount > 0 }
-                ?.getItemAt(0)
-                ?.coerceToText(context)
-                ?.toString()
-                .orEmpty()
-            clipboardHasNumber = looksLikePhoneNumber(clipText)
+            val description = clipboard?.primaryClipDescription
+            val isText = description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN) == true ||
+                description?.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_HTML) == true
+            if (!isText) {
+                clipboardHasNumber = false
+            } else {
+                val stamp = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    description?.timestamp ?: 0L
+                } else 0L
+                val seenPrefs = context.getSharedPreferences("ashu_clipboard_seen", Context.MODE_PRIVATE)
+                val lastStamp = seenPrefs.getLong("last_stamp", -1L)
+                val lastWasNumber = seenPrefs.getBoolean("last_was_number", false)
+                if (stamp != 0L && stamp == lastStamp) {
+                    // Same clip as last time: reuse the previous verdict, no read, no toast.
+                    clipboardHasNumber = lastWasNumber
+                } else {
+                    val clipText = clipboard.primaryClip
+                        ?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)
+                        ?.coerceToText(context)
+                        ?.toString()
+                        .orEmpty()
+                    val isNumber = looksLikePhoneNumber(clipText)
+                    clipboardHasNumber = isNumber
+                    seenPrefs.edit().putLong("last_stamp", stamp).putBoolean("last_was_number", isNumber).apply()
+                }
+            }
         } else {
             clipboardHasNumber = false
         }
@@ -228,8 +279,99 @@ fun DialerScreen(
     val numberToDial = matchedContacts.singleOrNull()?.phoneNumber ?: number
 
 
+    // ------------------------------------------------------------------------------
+    // RESPONSIVE LAYOUT. The dialer used to be one Column of fixed-dp blocks
+    // (72dp keys, 120dp number zone, 140dp match zone ...) stacked from the top.
+    // That total (~740dp) fit a small/old phone snugly but left a large empty
+    // gap on a tall one, and it could not shrink on a short screen or when the
+    // system font/display size was raised - which is why the same app looked
+    // different (and worse) from phone to phone and ROM to ROM.
+    //
+    // Now everything that used a fixed dp is derived from the space this screen
+    // is actually given (BoxWithConstraints already excludes the bottom nav and
+    // system bars, because the Scaffold hands this composable only what is left):
+    //   * dialer keys are sized from BOTH the available width and height, so they
+    //     never overflow sideways on a narrow phone nor get cramped on a short one;
+    //   * the number zone, match-results zone, hint row and vertical gaps are a
+    //     fraction of the available height;
+    //   * the whole block is centred in whatever is left over instead of being
+    //     glued to the top, so a tall screen gets even breathing room.
+    // The zones are still FIXED for a given screen size (they only change when the
+    // screen itself changes), so the "dialpad jumps while typing" fixes explained
+    // below still hold exactly as before.
+    // ------------------------------------------------------------------------------
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        // All sizing below is done in plain Float dp values (.value) and converted
+        // back with .dp at the end. Float.coerceIn / minOf / maxOf are ordinary Kotlin
+        // stdlib calls, so no Compose-specific Dp operator or import is needed.
+        val availW = maxWidth.value
+        val availH = maxHeight.value
+
+        val sidePadF = (availW * 0.07f).coerceIn(16f, 32f)
+        val usableWF = availW - sidePadF * 2f
+        // 3 keys + 2 gaps must fit across the usable width.
+        val keyFromWidth = (usableWF - 28f) / 3f
+
+        // Vertical zones that do NOT depend on the key size.
+        val topPadF = (availH * 0.02f).coerceIn(6f, 20f)
+        val numberZoneF = (availH * 0.10f).coerceIn(56f, 120f)
+        val hintZoneF = (availH * 0.04f).coerceIn(28f, 46f)
+        // The contact-match list must always be able to show at least ONE full row
+        // (a row is ~64dp: 38dp avatar + 24dp padding, plus the list's 8dp top padding).
+        // It then grows to use whatever height is left over - see matchZoneF below.
+        val minMatchF = 68f
+        val topFixedF = topPadF + numberZoneF + hintZoneF + minMatchF
+
+        // SOLVE the key size so the whole stack fills the height it is given.
+        // In the normal range (no clamp active) the height of everything BELOW the
+        // match list (key rows + call button + gaps) is
+        //     40 + 6.14 * key
+        // where 6.14 = 4 rows (4) + 5 row-gaps at 0.16 (0.80) + 2 call gaps at 0.24
+        // (0.48) + the call button at 0.86, and the constant 40 is the four 10dp
+        // key-halo margins. Solving for key gives the line below. This was checked
+        // against eleven phone sizes (320x480 up to a 673x841 fold): every size from
+        // 360x640 up fits, the smallest key is ~54dp, and the ones that cannot fit
+        // (320x480, landscape) fall back to scrolling - see `needsScroll`.
+        val keySizeF = ((availH - topFixedF - 40f) / 6.14f)
+            .coerceAtMost(keyFromWidth)
+            .coerceAtMost(92f)
+            .coerceAtLeast(44f)
+
+        val sidePad = sidePadF.dp
+        val keySize = keySizeF.dp
+        val numberZoneH = numberZoneF.dp
+        val hintZoneH = hintZoneF.dp
+        val topPad = topPadF.dp
+        val rowGapF = (keySizeF * 0.16f).coerceIn(6f, 18f)
+        val rowGap = rowGapF.dp
+        val callSizeF = (keySizeF * 0.86f).coerceIn(50f, 76f)
+        val callSize = callSizeF.dp
+        val callTopGapF = (keySizeF * 0.24f).coerceIn(8f, 22f)
+        val callTopGap = callTopGapF.dp
+        val numberFontBase = (keySizeF * 0.47f).coerceIn(26f, 42f)
+        val numberTopPad = (numberZoneF * 0.22f).dp
+        val keyRowPad = (rowGapF / 2f).dp
+
+        // Height of everything from the key rows down (this block never moves).
+        val bottomBlockF = rowGapF + 4f * (keySizeF + 10f + rowGapF) + 2f * callTopGapF + callSizeF
+        // The match list gets ALL the height that is left, never less than one row.
+        // Because it is derived from the same numbers as everything else, it is a
+        // constant for a given screen: typing or backspacing never changes it, so the
+        // dialpad still cannot jump (the original "dialpad moves" fix is preserved).
+        val matchZoneF = (availH - topPadF - numberZoneF - hintZoneF - bottomBlockF).coerceAtLeast(minMatchF)
+        val matchZoneH = matchZoneF.dp
+
+        val neededF = topPadF + numberZoneF + hintZoneF + matchZoneF + bottomBlockF
+        // True on a screen too short for a full dialpad (very small phones, landscape):
+        // the column then scrolls instead of pushing the call button off-screen.
+        val needsScroll = neededF > availH + 1f
+
     Column(
-        modifier = modifier.fillMaxSize().padding(horizontal = 28.dp).padding(top = 22.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (needsScroll) Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()) else Modifier)
+            .padding(horizontal = sidePad)
+            .padding(top = topPad),
         // Keep the number display anchored at the top. The previous Bottom
         // arrangement let the presence/absence of contact-match content
         // change the whole block's vertical position, making the typed
@@ -268,7 +410,7 @@ fun DialerScreen(
         // gives the chip enough headroom to fully play its slide/scale-in
         // animation without clipping.
         Column(
-            modifier = Modifier.fillMaxWidth().height(120.dp).padding(top = 30.dp, bottom = 2.dp),
+            modifier = Modifier.fillMaxWidth().height(numberZoneH).padding(top = numberTopPad, bottom = 2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
@@ -297,7 +439,7 @@ fun DialerScreen(
                 onValueChange = { numberField = it },
                 readOnly = true,
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    fontSize = if (number.length > 10) 28.sp else 34.sp,
+                    fontSize = (if (number.length > 10) numberFontBase * 0.82f else numberFontBase).sp,
                     fontWeight = FontWeight.Light,
                     color = palette.textPrimary,
                     textAlign = TextAlign.Center
@@ -343,7 +485,7 @@ fun DialerScreen(
         // changed the amount of occupied space as backspace removed the final match,
         // which made the dialpad subtly re-anchor. Keeping one fixed viewport prevents
         // that movement while still allowing the result list itself to animate.
-        Box(Modifier.fillMaxWidth().height(140.dp)) {
+        Box(Modifier.fillMaxWidth().height(matchZoneH)) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = matchedByContactId.isNotEmpty(),
                 enter = fadeIn() + scaleIn(initialScale = 0.97f),
@@ -361,7 +503,7 @@ fun DialerScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp).fillMaxWidth())
+        Spacer(Modifier.height(rowGap).fillMaxWidth())
 
         // THE FIX for "dialpad still moves up and down" (the biggest single
         // cause of it): these two hint chips (Add to Contacts / Paste) sit
@@ -388,7 +530,7 @@ fun DialerScreen(
         // dialpad - matching the original slide-up entrance animation -
         // without the dialpad itself ever moving.
         Box(
-            modifier = Modifier.fillMaxWidth().height(44.dp),
+            modifier = Modifier.fillMaxWidth().height(hintZoneH),
             contentAlignment = Alignment.BottomCenter
         ) {
             // Add-to-Contacts and Paste now render here, directly above the
@@ -459,15 +601,14 @@ fun DialerScreen(
         // above it grows/shrinks/scrolls (already capped via
         // weight(1f, fill=false) + AnimatedVisibility above), so backspacing
         // never resizes anything below the number field.
-        val keySize = 72.dp
-        val keyVerticalPadding = 0.dp
+        val keyVerticalPadding = keyRowPad
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             keys.chunked(3).forEach { row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 7.dp, vertical = keyVerticalPadding),
+                        .padding(horizontal = 0.dp, vertical = keyVerticalPadding),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
                     row.forEach { key ->
@@ -487,7 +628,7 @@ fun DialerScreen(
         }
 
         Box(
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 24.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = callTopGap, bottom = callTopGap),
             contentAlignment = Alignment.Center
         ) {
             val callInteractionSource = remember { MutableInteractionSource() }
@@ -499,7 +640,7 @@ fun DialerScreen(
                 enabled = number.isNotEmpty(),
                 interactionSource = callInteractionSource,
                 modifier = Modifier
-                    .size(62.dp)
+                    .size(callSize)
                     .scale(callScale)
                     .clip(CircleShape)
                     .background(palette.callGreen)
@@ -579,6 +720,7 @@ fun DialerScreen(
                 }
             }
         }
+    }
     }
 }
 

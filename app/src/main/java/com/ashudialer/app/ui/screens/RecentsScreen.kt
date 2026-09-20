@@ -89,6 +89,9 @@ fun RecentsScreen(
     showContactThumbnails: Boolean = true,
     showPhoneNumbers: Boolean = false,
     useRelativeDate: Boolean = true,
+    // When true, every call to the same number on the same calendar day is folded into
+    // one row (see groupByNumberPerDay). Default false = the original behaviour.
+    groupByDay: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -146,7 +149,13 @@ fun RecentsScreen(
         }.take(5)
     }
 
-    val grouped = remember(filtered) { filtered.groupBy { dateBucket(it.timestampMillis) } }
+    // Optional: one row per number per calendar day. Applied AFTER the tab/search filters so the
+    // result is always consistent with what the person is looking at (e.g. the Missed tab only
+    // folds missed calls together).
+    val displayed = remember(filtered, groupByDay) {
+        if (groupByDay) groupByNumberPerDay(filtered) else filtered
+    }
+    val grouped = remember(displayed) { displayed.groupBy { dateBucket(it.timestampMillis) } }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -794,6 +803,75 @@ private fun RecentRow(
     }
 }
 
+
+/**
+ * Folds calls to the same number on the same calendar day into ONE row.
+ *
+ * Input is newest-first (that is how the list is built) and the output keeps that order: a
+ * folded row takes the position of the NEWEST call in its group, so it sorts exactly where the
+ * latest call of that number/day would have been.
+ *
+ * The folded row shows the newest call's direction/time/duration, callCount is the sum of the
+ * counts of everything folded in, and groupedIds is the union of every underlying database row -
+ * so deleting the row (long-press > delete) removes all of them, not just the first.
+ *
+ * "Same number" uses the digits-only form so "+91 98765 43210" and "9876543210" are one person.
+ * A blank number (private/unknown caller) is never folded: hiding several different unknown
+ * callers behind one row would lose information.
+ */
+private fun groupByNumberPerDay(calls: List<RecentCall>): List<RecentCall> {
+    if (calls.size < 2) return calls
+    fun dayKey(millis: Long): Int {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        return c.get(java.util.Calendar.YEAR) * 1000 + c.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+    // A number is described by its last 10 digits (`tail`) plus, ONLY when it is written in
+    // international form ("+CC ..."), its country prefix (`cc`, otherwise empty = unknown).
+    //   "+91 98765 43210", "098765 43210", "9876543210"  -> same tail, so the same person
+    //   "+91 98765 43210" vs "+44 98765 43210"           -> same tail but BOTH have a prefix and
+    //                                                       the prefixes differ -> different people
+    // Two numbers are "the same" when the tails match and the prefixes do not contradict each
+    // other (a missing prefix never contradicts anything).
+    class Num(val tail: String, val cc: String)
+    fun parse(n: String): Num {
+        val digits = n.filter { it.isDigit() }
+        val tail = if (digits.length > 10) digits.takeLast(10) else digits
+        val cc = if (n.trim().startsWith("+") && digits.length > 10) digits.dropLast(10) else ""
+        return Num(tail, cc)
+    }
+    fun same(a: Num, b: Num): Boolean =
+        a.tail == b.tail && (a.cc.isEmpty() || b.cc.isEmpty() || a.cc == b.cc)
+
+    class Slot(val num: Num, val day: Int, val index: Int)
+    val out = ArrayList<RecentCall>(calls.size)
+    // Slots are bucketed by "tail|day" so lookup stays fast on a long call log; the (rare)
+    // entries inside one bucket are then checked for a prefix conflict.
+    val buckets = HashMap<String, MutableList<Slot>>()
+    for (call in calls) {
+        // A blank / non-numeric number (private caller) is never folded.
+        if (call.phoneNumber.none { it.isDigit() }) { out.add(call); continue }
+        val num = parse(call.phoneNumber)
+        val day = dayKey(call.timestampMillis)
+        val bucket = buckets.getOrPut(num.tail + "|" + day) { mutableListOf() }
+        // AMBIGUITY GUARD: a number with no country prefix ("98765 43210") could belong to any
+        // country, so if it would match MORE THAN ONE existing row (e.g. both a +91 row and a +44
+        // row with the same tail already exist today) it is left as its own row rather than being
+        // guessed into the wrong person's group. Nothing is dropped - it just is not folded.
+        val candidates = bucket.filter { same(it.num, num) }
+        val hit = if (candidates.size == 1) candidates[0] else null
+        if (hit == null) {
+            bucket.add(Slot(num, day, out.size))
+            out.add(call)
+        } else {
+            val first = out[hit.index]   // the NEWEST call of this number on this day (list is newest-first)
+            out[hit.index] = first.copy(
+                callCount = first.callCount + call.callCount,
+                groupedIds = first.groupedIds + call.groupedIds
+            )
+        }
+    }
+    return out
+}
 
 private fun dateBucket(millis: Long): String {
     val now = java.util.Calendar.getInstance()

@@ -15,5 +15,5 @@
     <color name="danger_red">#E0442E</color>
     <color name="call_green">#34C759</color>
     <!-- Neutral first-frame color; the call screen itself draws its real theme. -->
-    <color name="call_window_background">#E4F3FF</color>
+    <color name="call_window_background">#F2F8FF</color>
 </resources>

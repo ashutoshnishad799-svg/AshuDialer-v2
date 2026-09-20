@@ -77,6 +77,29 @@ class AshuDialerApp : Application() {
     lateinit var callbackReminderRepository: com.ashudialer.app.data.CallbackReminderRepository
         private set
 
+    /**
+     * One-time fix for builds where auto-record defaulted to ON. Anyone who had
+     * already turned the master "Call recording" switch on in such a build has
+     * "auto_record_incoming/outgoing = true" stored even though they never chose
+     * it, so changing the default in code alone would not help them. This clears
+     * those two values exactly once (guarded by a flag) so they fall back to the
+     * new default (off). After this runs, whatever the person picks in Settings
+     * is respected and never touched again.
+     */
+    private fun migrateAutoRecordDefaultsOnce() {
+        val flags = getSharedPreferences("ashu_migrations", MODE_PRIVATE)
+        if (flags.getBoolean("auto_record_default_off_v1", false)) return
+        getSharedPreferences("ashu_call_recording_prefs", MODE_PRIVATE).edit()
+            .remove("auto_record_incoming")
+            .remove("auto_record_outgoing")
+            // Same one-time reset for the two noisy feedback defaults that were
+            // ON in earlier builds (see RecordingPrefs.showToasts / post-call).
+            .remove("show_toasts")
+            .remove("post_recording_notification")
+            .apply()
+        flags.edit().putBoolean("auto_record_default_off_v1", true).apply()
+    }
+
     override fun onCreate() {
         super.onCreate()
         database = AshuDialerDatabase.getInstance(this)
@@ -103,6 +126,7 @@ class AshuDialerApp : Application() {
         privateSpaceRepository = com.ashudialer.app.data.PrivateSpaceRepository(database.privateSpaceDao(), database.lockedNumberDao(), this)
         localAuthRepository = com.ashudialer.app.data.LocalAuthRepository(this)
         callbackReminderRepository = com.ashudialer.app.data.CallbackReminderRepository(this, database.callbackReminderDao())
+        migrateAutoRecordDefaultsOnce()
         createNotificationChannels()
 
         CallNotificationHelper.createChannels(this)
