@@ -30,6 +30,10 @@ val GradientPalette = DialerPalette(
     id = "gradient",
     displayName = "Gradient",
     isDark = false,
+    // Light-theme readability rule (applies to every non-dark palette): every gradient stop must keep
+    //   textSecondary >= 4.5:1 and danger >= 3.5:1 contrast. The bottom stops used to be saturated
+    //   mid-tones (contrast 1.4 - 2.2) which made bottom-of-screen text unreadable. Stops are now
+    //   capped at a lightness that keeps the colour but leaves room for dark text.
     // DESIGN FIX for "Gradient theme doesn't feel like a gradient": the
     // previous 4 stops (0xFFE8FBF5 -> 0xFFB9EDE0 -> 0xFF7FD8C9 ->
     // 0xFF52C4B0) were all the same teal hue at different lightness
@@ -44,17 +48,17 @@ val GradientPalette = DialerPalette(
     // staying in the same teal/mint family so this doesn't become a
     // different-feeling theme, just a more legibly gradient one.
     background = Brush.verticalGradient(
-        colors = listOf(Color(0xFFF3FDFA), Color(0xFFC3F2E3), Color(0xFF6FCDBB), Color(0xFF2E9E93))
+        colors = listOf(Color(0xFFF3FDFA), Color(0xFFC3F2E3), Color(0xFFB3E5DB), Color(0xFFB0E8E3))
     ),
-    solidBackground = Color(0xFFB9EDE0),
+    solidBackground = Color(0xFFC3F2E3),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.92f),
     cardBorder = Color(0xFFFFFFFF).copy(alpha = 0.6f),
     navBackground = Color(0xFFFFFFFF).copy(alpha = 0.88f),
     accent = Color(0xFF0F8A7C),
     accentSoft = Color(0xFFDCF5EE),
     textPrimary = Color(0xFF0B2E28),
-    textSecondary = Color(0xFF5B7C76),
-    danger = Color(0xFFE0442E),
+    textSecondary = Color(0xFF4A6460),
+    danger = Color(0xFFD3351F),
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.95f),
     avatarBackground = Color(0xFFCFEFE6),
     callGreen = Color(0xFF34C759),
@@ -89,37 +93,42 @@ val OceanPalette = DialerPalette(
     id = "ocean",
     displayName = "Ocean Blue",
     isDark = false,
-    // DESIGN FIX for "default blue is one flat full-screen blue": the previous
-    // four stops (E4F3FF -> BFE0FF -> 7FBFFA -> 4A7FE8) were all the same blue
-    // hue at different lightness, which reads as a single tint, not a
-    // gradient. This one drifts across hues on purpose - a near-white sky top,
-    // a cool cyan band, a periwinkle middle and a deep indigo-violet bottom -
-    // so the top of the screen and the bottom look clearly different, the way
-    // the other themes do. Card, text and accent colours are unchanged, so
-    // contrast on every screen stays exactly as it was.
+    // The top and the bottom of the screen are clearly different colours (sky blue at the top,
+    // soft lilac at the bottom, ~46 degrees of hue apart) but the WHOLE gradient stays light.
+    //
+    // WHY IT MUST STAY LIGHT: every screen draws its text in dark navy / slate (textPrimary /
+    // textSecondary / danger) on top of this gradient. An earlier version darkened the bottom to
+    // deep indigo (#5A57D6): secondary text there measured a contrast ratio of 1.08:1 (1.0 is
+    // literally invisible) and "Danger zone", the Keypad/Mute/Audio labels and the bottom-of-screen
+    // buttons disappeared. The original blue gradient had the same flaw (1.34:1 at its bottom stop),
+    // it was just less obvious. Rule for this palette: keep every gradient stop light enough that
+    //   textPrimary   >= 11:1,  textSecondary >= 4.5:1,  danger >= 3.8:1   (WCAG AA-level).
+    // Measured for the stops below: primary >= 11.5, secondary >= 4.78, danger >= 3.83.
     background = Brush.verticalGradient(
         colors = listOf(
             Color(0xFFF2F8FF),   // sky white
-            Color(0xFFCDEBFF),   // pale cyan
-            Color(0xFF9DBEFF),   // periwinkle
-            Color(0xFF6C7CF0),   // soft indigo
-            Color(0xFF5A57D6)    // deep indigo-violet
+            Color(0xFFD3ECFF),   // ice blue
+            Color(0xFFD0DCFF),   // periwinkle
+            Color(0xFFDED2FA)    // soft lilac
         )
     ),
-    solidBackground = Color(0xFFCDEBFF),
+    solidBackground = Color(0xFFD3ECFF),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.94f),
     cardBorder = Color(0xFFFFFFFF).copy(alpha = 0.65f),
     navBackground = Color(0xFFFFFFFF).copy(alpha = 0.9f),
     accent = Color(0xFF1E6FE8),
     accentSoft = Color(0xFFDCEBFF),
     textPrimary = Color(0xFF0B1E42),
-    textSecondary = Color(0xFF5A6E93),
-    danger = Color(0xFFE0442E),
+    // Darkened from #5A6E93 (only 4.8:1 even on the lightest stop) so it stays >= 4.5:1 across
+    // the whole gradient.
+    textSecondary = Color(0xFF475B80),
+    // Darkened from #E0442E (3.4:1 on the light stops) to stay readable on the lilac end.
+    danger = Color(0xFFBC331F),
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.96f),
     avatarBackground = Color(0xFFD3E7FF),
     callGreen = Color(0xFF34C759),
     swatchStart = Color(0xFF8FD3FF),
-    swatchEnd = Color(0xFF5A57D6)
+    swatchEnd = Color(0xFFB9A8F5)
 )
 
 
@@ -127,8 +136,12 @@ val SunsetPalette = DialerPalette(
     id = "sunset",
     displayName = "Sunset",
     isDark = false,
+    // Light-theme readability rule (applies to every non-dark palette): every gradient stop must keep
+    //   textSecondary >= 4.5:1 and danger >= 3.5:1 contrast. The bottom stops used to be saturated
+    //   mid-tones (contrast 1.4 - 2.2) which made bottom-of-screen text unreadable. Stops are now
+    //   capped at a lightness that keeps the colour but leaves room for dark text.
     background = Brush.verticalGradient(
-        colors = listOf(Color(0xFFFFF3E4), Color(0xFFFFD9B8), Color(0xFFFFA98C), Color(0xFFF06B5E))
+        colors = listOf(Color(0xFFFFF3E4), Color(0xFFFFD9B8), Color(0xFFFFC2AD), Color(0xFFF8BAB4))
     ),
     solidBackground = Color(0xFFFFD9B8),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.93f),
@@ -137,8 +150,8 @@ val SunsetPalette = DialerPalette(
     accent = Color(0xFFE0523C),
     accentSoft = Color(0xFFFFE4DA),
     textPrimary = Color(0xFF3A1A12),
-    textSecondary = Color(0xFF8A6154),
-    danger = Color(0xFFD32E1F),
+    textSecondary = Color(0xFF6D4D43),
+    danger = Color(0xFFC12A1C),
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.95f),
     avatarBackground = Color(0xFFFFE0CF),
     callGreen = Color(0xFF34C759),
@@ -173,8 +186,12 @@ val RoseGoldPalette = DialerPalette(
     id = "rosegold",
     displayName = "Rose Gold",
     isDark = false,
+    // Light-theme readability rule (applies to every non-dark palette): every gradient stop must keep
+    //   textSecondary >= 4.5:1 and danger >= 3.5:1 contrast. The bottom stops used to be saturated
+    //   mid-tones (contrast 1.4 - 2.2) which made bottom-of-screen text unreadable. Stops are now
+    //   capped at a lightness that keeps the colour but leaves room for dark text.
     background = Brush.verticalGradient(
-        colors = listOf(Color(0xFFFFF6F3), Color(0xFFFFE1DA), Color(0xFFFFC2C2), Color(0xFFE89A9A))
+        colors = listOf(Color(0xFFFFF6F3), Color(0xFFFFE1DA), Color(0xFFFFC2C2), Color(0xFFF2C5C5))
     ),
     solidBackground = Color(0xFFFFE1DA),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.93f),
@@ -183,8 +200,8 @@ val RoseGoldPalette = DialerPalette(
     accent = Color(0xFFC96B6B),
     accentSoft = Color(0xFFFFE9E5),
     textPrimary = Color(0xFF3D1F1F),
-    textSecondary = Color(0xFF8F6C6C),
-    danger = Color(0xFFCB3B3B),
+    textSecondary = Color(0xFF6C5252),
+    danger = Color(0xFFC33434),
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.95f),
     avatarBackground = Color(0xFFFFDCD5),
     callGreen = Color(0xFF34C759),
@@ -278,26 +295,30 @@ val RainbowPalette = DialerPalette(
     id = "rainbow",
     displayName = "Rainbow",
     isDark = false,
+    // Light-theme readability rule (applies to every non-dark palette): every gradient stop must keep
+    //   textSecondary >= 4.5:1 and danger >= 3.5:1 contrast. The bottom stops used to be saturated
+    //   mid-tones (contrast 1.4 - 2.2) which made bottom-of-screen text unreadable. Stops are now
+    //   capped at a lightness that keeps the colour but leaves room for dark text.
     background = Brush.linearGradient(
         colors = listOf(
-            Color(0xFFFF6B6B), // red
-            Color(0xFFFFB347), // orange
-            Color(0xFFFFE066), // yellow
-            Color(0xFF8CE99A), // green
-            Color(0xFF66D9E8), // cyan/blue
-            Color(0xFF9D8CFF), // indigo
-            Color(0xFFE599F7)  // violet
+            Color(0xFFFFADAD), // red
+            Color(0xFFFFDDAD), // orange
+            Color(0xFFFFEEAD), // yellow
+            Color(0xFFBBF2C3), // green
+            Color(0xFFB8EDF4), // cyan/blue
+            Color(0xFFB9ADFF), // indigo
+            Color(0xFFECB3F9)  // violet
         )
     ),
-    solidBackground = Color(0xFFFDF6FF),
+    solidBackground = Color(0xFFFFDDAD),
     cardBackground = Color(0xFFFFFFFF).copy(alpha = 0.82f),
     cardBorder = Color(0xFFFFFFFF).copy(alpha = 0.75f),
     navBackground = Color(0xFFFFFFFF).copy(alpha = 0.86f),
     accent = Color(0xFF7B2FD6),
     accentSoft = Color(0xFFF3E8FF),
     textPrimary = Color(0xFF2B1049),
-    textSecondary = Color(0xFF6B5A85),
-    danger = Color(0xFFE0442E),
+    textSecondary = Color(0xFF504364),
+    danger = Color(0xFFA62A19),
     searchBackground = Color(0xFFFFFFFF).copy(alpha = 0.92f),
     avatarBackground = Color(0xFFF3E8FF),
     callGreen = Color(0xFF34C759),

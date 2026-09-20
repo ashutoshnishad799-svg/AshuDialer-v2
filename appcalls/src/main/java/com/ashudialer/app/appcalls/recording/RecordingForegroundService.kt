@@ -14,6 +14,7 @@ import com.ashudialer.app.appcalls.IShellService
 import com.ashudialer.app.appcalls.ShizukuConnectionManager
 import com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -66,6 +67,53 @@ class RecordingForegroundService : Service() {
     private lateinit var shizuku: ShizukuConnectionManager
 
     private var shellService: IShellService? = null
+
+    /**
+     * The (possibly still-connecting) bind to the Shizuku shell service. There is only ever ONE of
+     * these per service instance. Binding is the slowest part of starting a recording (Shizuku spawns
+     * a whole new process for it), so it is started as early as possible - when a call starts
+     * ringing - and [handleStart] simply waits on the same [kotlinx.coroutines.Deferred] instead of
+     * binding again. Sharing one Deferred also makes a second bind impossible:
+     * ShizukuConnectionManager.getShellService() overwrites its stored connection on every call, so
+     * two overlapping binds would leak the first one.
+     */
+    private var shellServiceBind: kotlinx.coroutines.Deferred<IShellService>? = null
+
+    // Set when the current bind attempt ended in an error, so it is not reused (see below). Tracked with
+    // a plain flag instead of Deferred.getCompletionExceptionOrNull(), which is an experimental API
+    // that would need an opt-in this module does not have.
+    @Volatile
+    private var shellServiceBindFailed = false
+
+    private fun bindShellServiceOnce(): kotlinx.coroutines.Deferred<IShellService> {
+        val existing = shellServiceBind
+        // Reuse a bind that is still connecting or that succeeded. One that FAILED (e.g. Shizuku was
+        // not running yet while the call was ringing) or was cancelled must not stick, or every later
+        // start would fail with that same old error.
+        if (existing != null && !existing.isCancelled && !shellServiceBindFailed) return existing
+
+        shellServiceBindFailed = false
+        val created = serviceScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            try {
+                if (!ShizukuConnectionManager.waitForServer()) throw IllegalStateException("Shizuku is not running")
+                shizuku.getShellService()
+            } catch (e: Throwable) {
+                shellServiceBindFailed = true
+                throw e
+            }
+        }
+        shellServiceBind = created
+        created.start()
+        return created
+    }
+
+    /** Called when a call starts ringing: begin the slow bind now so it is ready at answer time. */
+    private fun prewarmShellService() {
+        if (shellService != null || !ShizukuConnectionManager.isAvailable() || !ShizukuConnectionManager.hasPermission()) return
+        AppCallsLogger.d(TAG, "Pre-warming the Shizuku shell service while the call is ringing")
+        bindShellServiceOnce()
+    }
+
     private var tempFile: File? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -119,6 +167,10 @@ class RecordingForegroundService : Service() {
                 state = RecordingServiceState.Standby(current)
                 // Warm Shizuku up early so it is ready by the time recording actually starts.
                 if (prefs.shizukuAutoManage && !prefs.shizukuStartOnRecordOnly) tryStartShizukuServer()
+                // Only worth binding when this call is actually going to be recorded (auto-record on
+                // for that direction, or an app call that starts recording by itself). A call the
+                // person records by tapping the button later just binds at that moment as before.
+                if (current != null && wantsAutoRecord(current)) prewarmShellService()
             }
             ACTION_PAUSE_RECORDING -> (state as? RecordingServiceState.Active)?.let {
                 it.engine.isPaused = true; state = it.copy(isPaused = true)
@@ -129,6 +181,13 @@ class RecordingForegroundService : Service() {
             ACTION_STOP_RECORDING -> finishSessionAndStop()
         }
         return START_NOT_STICKY
+    }
+
+    /** True when this session will start recording on its own (so a pre-warm will be used, not wasted). */
+    private fun wantsAutoRecord(session: RecordingSession): Boolean = when {
+        session.isAppCall -> true                       // WhatsApp/Telegram/... start recording by themselves
+        session.direction == CallDirection.INCOMING -> prefs.autoRecordIncoming
+        else -> prefs.autoRecordOutgoing
     }
 
     private fun readSession(intent: Intent?): RecordingSession? {
@@ -154,11 +213,7 @@ class RecordingForegroundService : Service() {
 
         serviceScope.launch {
             try {
-                if (!ShizukuConnectionManager.waitForServer()) {
-                    throw IllegalStateException("Shizuku is not running")
-                }
-                val service = shizuku.getShellService()
-                shellService = service
+                val service = shellService ?: bindShellServiceOnce().await().also { shellService = it }
                 startPipeline(service, session)
             } catch (e: SecurityException) {
                 AppCallsLogger.e(TAG, "Shizuku permission denied", e)
@@ -178,10 +233,17 @@ class RecordingForegroundService : Service() {
         }
     }
 
-    private suspend fun startPipeline(service: IShellService, session: RecordingSession) {
+    private suspend fun startPipeline(
+        service: IShellService,
+        session: RecordingSession,
+        sourceOverride: ScrcpyAudioSource? = null
+    ) {
         val codec = prefs.audioCodec
-        // WhatsApp/Telegram are VoIP: no modem tap exists, only the speaker mix (OUTPUT) works.
-        val source = if (session.isAppCall) ScrcpyAudioSource.OUTPUT else prefs.audioSource
+        // WhatsApp / Telegram / Instagram / Snapchat are VoIP: there is no modem tap, so the phone-call
+        // sources do not apply. The first choice is the speaker mix (OUTPUT); if that turns out to
+        // deliver silence, watchSilence() retries once with the next source in appCallFallbacks.
+        val source = sourceOverride
+            ?: if (session.isAppCall) appCallFallbacks().first() else prefs.audioSource
         val temp = RecordingStorage.newTempFile(this, session, codec, prefs)
         tempFile = temp
 
@@ -194,11 +256,93 @@ class RecordingForegroundService : Service() {
             engine.cancel(service)
             throw IllegalStateException(e.message, e)
         }
-        startedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        // On a fallback restart the person still sees "recording" the whole time, so the timer keeps
+        // its original start and the state goes straight from one Active to the next.
+        if (sourceOverride == null) startedAtElapsedMs = android.os.SystemClock.elapsedRealtime()
         state = RecordingServiceState.Active(engine, false, session)
-        notifications.vibrate()
-        notifications.toast("Recording started")
+        if (sourceOverride == null) {
+            notifications.vibrate()
+            notifications.toast("Recording started")
+        }
         AppCallsLogger.i(TAG, "Recording started: source=${source.cliKey} codec=${codec.cliKey}")
+        watchSilence(service, session, source, engine)
+    }
+
+    /**
+     * The order in which sources are tried for a VoIP call. OUTPUT (speaker mix) works on the widest
+     * range of phones, so it goes first. PLAYBACK captures other apps' audio directly and needs
+     * Android 13+ (the bundled scrcpy-server refuses it earlier), so it is only offered there.
+     */
+    private fun appCallFallbacks(): List<ScrcpyAudioSource> = buildList {
+        add(ScrcpyAudioSource.OUTPUT)
+        if (android.os.Build.VERSION.SDK_INT >= 33) add(ScrcpyAudioSource.PLAYBACK)
+    }
+
+    private var silenceWatch: kotlinx.coroutines.Job? = null
+
+    /**
+     * A recording that "works" but contains only silence is worse than a failed one - the person
+     * finds out after the call. So for the first seconds of a recording this checks whether any
+     * sound is actually arriving. If the capture is digital silence:
+     *   - for an app call it restarts ONCE with the next source in [appCallFallbacks] (the silent
+     *     partial file is discarded, the person is not told anything went wrong);
+     *   - if there is nothing left to try, or it is a phone call, it says so in a notification so
+     *     the person knows to change the audio source, instead of discovering an empty file later.
+     * It never stops a recording on its own and never deletes one that has any sound in it.
+     */
+    private fun watchSilence(
+        service: IShellService,
+        session: RecordingSession,
+        source: ScrcpyAudioSource,
+        engine: AppCallRecordingEngine
+    ) {
+        silenceWatch?.cancel()
+        silenceWatch = serviceScope.launch {
+            // Give the capture time to produce ~3 s of frames, then look every second for a while.
+            kotlinx.coroutines.delay(4_000L)
+            var checks = 0
+            while (checks < 8) {
+                val active = state as? RecordingServiceState.Active ?: return@launch
+                if (active.engine !== engine) return@launch   // a different recording is running now
+                if (engine.framesCaptured >= 150) break        // enough audio to judge
+                kotlinx.coroutines.delay(1_000L)
+                checks++
+            }
+            val active = state as? RecordingServiceState.Active ?: return@launch
+            if (active.engine !== engine || !engine.isCapturingSilence) return@launch
+
+            AppCallsLogger.w(TAG, "Capture is silent: source=${source.cliKey} app=${session.sourceApp} frames=${engine.framesCaptured}")
+
+            val next = if (session.isAppCall) appCallFallbacks().dropWhile { it != source }.drop(1).firstOrNull() else null
+            if (next != null) {
+                AppCallsLogger.i(TAG, "Retrying with source=${next.cliKey}")
+                // Throw the silent partial away and start again with the next source.
+                // The state deliberately stays Active during this swap. CallRecorder.isRecording (the
+                // in-call Record button and its "auto recording active" label) reads it directly, and
+                // bouncing through Starting would make the button flicker off for a moment and invite
+                // a tap that stops or double-starts the recording.
+                // cancel() -> stopRecording() blocks (process wait + up to 2 s of relay join), and this
+                // coroutine runs on the Main dispatcher, so do that part on the IO dispatcher.
+                withContext(Dispatchers.IO) { engine.cancel(service) }
+                tempFile = null
+                try {
+                    startPipeline(service, session, sourceOverride = next)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppCallsLogger.e(TAG, "Fallback source failed", e)
+                    notifications.showError("Recording could not capture sound. Try a different audio source in Recording settings.")
+                    finishSessionAndStop()
+                }
+            } else {
+                notifications.showError(
+                    if (session.isAppCall)
+                        "Only silence is being recorded. Put the call on speaker, or try another audio source in Recording settings."
+                    else
+                        "Only silence is being recorded. Open Recording settings and try another audio source (for example Voice communication mic)."
+                )
+            }
+        }
     }
 
     private fun tryStartShizukuServer() {
@@ -215,6 +359,11 @@ class RecordingForegroundService : Service() {
      * ends the service. Idempotent - safe to call from any stop path.
      */
     private fun finishSessionAndStop() {
+        silenceWatch?.cancel()
+        silenceWatch = null
+        shellServiceBind?.cancel()
+        shellServiceBind = null
+        shellServiceBindFailed = false
         val active = state as? RecordingServiceState.Active
         val session = state.session
         var saved: RecordingStorage.SavedRecording? = null
@@ -224,7 +373,7 @@ class RecordingForegroundService : Service() {
             active.engine.stop(shellService)
             val temp = tempFile
             if (temp != null) {
-                saved = RecordingStorage.finalize(this, temp, active.engine.activeCodec, prefs)
+                saved = RecordingStorage.finalize(this, temp, active.engine.activeCodec, prefs, session)
             }
             notifications.vibrate(long = true)
             if (saved != null) {
@@ -240,6 +389,9 @@ class RecordingForegroundService : Service() {
         tempFile = null
         isRecordingNow = false
         startedAtElapsedMs = 0L
+        // The recording is finalized, so the shell-service bind is not needed any more.
+        shellService = null
+        runCatching { shizuku.unbind() }
 
         serviceScope.launch(Dispatchers.IO) {
             RecordingStorage.runAutoDelete(

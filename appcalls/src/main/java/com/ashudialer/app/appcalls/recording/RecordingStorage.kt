@@ -28,6 +28,25 @@ object RecordingStorage {
     const val FOLDER_NAME = "Ashu Dialer"
     private const val TEMP_DIR = "recordings_tmp"
 
+    /**
+     * Sub-folder inside "Ashu Dialer" for a recording, chosen from where the call came from:
+     *   Music/Ashu Dialer/Phone/      normal phone calls
+     *   Music/Ashu Dialer/WhatsApp/   WhatsApp / WhatsApp Business
+     *   Music/Ashu Dialer/Telegram/   Telegram
+     *   Music/Ashu Dialer/Instagram/  Instagram
+     *   Music/Ashu Dialer/Snapchat/   Snapchat
+     * Recordings made by older versions sit directly in "Ashu Dialer/" and keep working: every
+     * lookup matches the folder by PREFIX, so both layouts are listed, played and deleted.
+     */
+    fun subFolderFor(session: RecordingSession?): String {
+        val app = session?.sourceApp?.trim().orEmpty()
+        return when {
+            app.isBlank() -> "Phone"
+            // Only letters/digits: the app name becomes a directory name, never let odd characters in.
+            else -> app.filter { it.isLetterOrDigit() }.ifBlank { "Apps" }
+        }
+    }
+
     /** Result of [finalize]: the file (for the Recordings list) and a content URI if it went to MediaStore. */
     data class SavedRecording(val file: File, val uri: Uri?)
 
@@ -78,7 +97,7 @@ object RecordingStorage {
      * Moves the finished temp file to its final location. Never returns null: if the preferred
      * location fails, the recording is kept in private storage rather than lost.
      */
-    fun finalize(context: Context, temp: File, codec: ScrcpyAudioCodec, prefs: RecordingPrefs): SavedRecording? {
+    fun finalize(context: Context, temp: File, codec: ScrcpyAudioCodec, prefs: RecordingPrefs, session: RecordingSession? = null): SavedRecording? {
         if (!temp.exists() || temp.length() <= 0L) {
             AppCallsLogger.w(TAG, "Nothing captured (missing or empty file) - discarding ${temp.name}")
             runCatching { temp.delete() }
@@ -86,20 +105,20 @@ object RecordingStorage {
         }
 
         if (prefs.storageMode == RecordingPrefs.StorageMode.PUBLIC_MUSIC) {
-            saveToMediaStore(context, temp, codec)?.let { return it }
+            saveToMediaStore(context, temp, codec, subFolderFor(session))?.let { return it }
             AppCallsLogger.w(TAG, "MediaStore save failed - falling back to private storage")
         }
-        return saveToPrivate(context, temp)
+        return saveToPrivate(context, temp, subFolderFor(session))
     }
 
-    private fun saveToMediaStore(context: Context, temp: File, codec: ScrcpyAudioCodec): SavedRecording? {
+    private fun saveToMediaStore(context: Context, temp: File, codec: ScrcpyAudioCodec, subFolder: String): SavedRecording? {
         return try {
             val resolver = context.contentResolver
             val values = ContentValues().apply {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, temp.name)
                 put(MediaStore.Audio.Media.MIME_TYPE, codec.fileMimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/$FOLDER_NAME")
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/$FOLDER_NAME/$subFolder")
                     put(MediaStore.Audio.Media.IS_PENDING, 1)
                 }
             }
@@ -118,13 +137,13 @@ object RecordingStorage {
             }
 
             // On Android 9 and below the file also has to physically exist in the Music folder.
-            val finalFile = File(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), FOLDER_NAME), temp.name)
+            val finalFile = File(File(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), FOLDER_NAME), subFolder), temp.name)
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                 finalFile.parentFile?.mkdirs()
                 resolver.openInputStream(itemUri)?.use { input -> finalFile.outputStream().use { input.copyTo(it) } }
             }
             temp.delete()
-            AppCallsLogger.i(TAG, "Saved recording to Music/$FOLDER_NAME/${temp.name}")
+            AppCallsLogger.i(TAG, "Saved recording to Music/$FOLDER_NAME/$subFolder/${temp.name}")
             SavedRecording(finalFile, itemUri)
         } catch (e: Exception) {
             AppCallsLogger.w(TAG, "MediaStore save threw: ${e.message}", e)
@@ -132,9 +151,9 @@ object RecordingStorage {
         }
     }
 
-    private fun saveToPrivate(context: Context, temp: File): SavedRecording? {
+    private fun saveToPrivate(context: Context, temp: File, subFolder: String): SavedRecording? {
         return try {
-            val dir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val dir = File(File(context.filesDir, "recordings"), subFolder).apply { mkdirs() }
             val dest = File(dir, temp.name)
             temp.copyTo(dest, overwrite = true)
             temp.delete()

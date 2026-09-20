@@ -1,13 +1,7 @@
 package com.ashudialer.app.ui.screens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,9 +9,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -29,33 +23,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.ui.components.glassCard
-import com.ashudialer.app.ui.components.liquidGlass
 import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 
 /**
- * Human-readable name for a stored incomingCallStyle value. Used both here
- * and as SettingsScreen's NavRow subtitle, so both always agree on the
- * display name for a given stored id. Falls back to "Aurora" for anything
- * unrecognized, matching IncomingCallScreen's own dispatcher fallback.
+ * Human-readable name for a stored incomingCallStyle value. Used here and as SettingsScreen's row
+ * subtitle, so both always agree. An id saved by an older build ("aurora", "hyper" ...) is first
+ * mapped to a current one, so this never shows a name for a style that no longer exists.
  */
-fun incomingCallStyleDisplayName(styleId: String): String = when (styleId) {
-    "classic" -> "Classic White"
-    "hyper" -> "HyperOS"
-    "ios" -> "iPhone"
-    "orbit" -> "Orbit"
-    "pulse" -> "Pulse"
-    else -> "Aurora"
+fun incomingCallStyleDisplayName(styleId: String): String = when (IncomingCallStyles.normalize(styleId)) {
+    IncomingCallStyles.CENTER -> "Centered"
+    IncomingCallStyles.SWIPE -> "Swipe"
+    else -> "Clean"
 }
 
 private data class IncomingCallStyleOption(
@@ -65,32 +52,35 @@ private data class IncomingCallStyleOption(
 )
 
 private val IncomingCallStyleOptions = listOf(
-    IncomingCallStyleOption("classic", "Classic White", "Clean white screen like a stock dialer"),
-    IncomingCallStyleOption("hyper", "HyperOS", "Big centered name, two round buttons - Xiaomi style"),
-    IncomingCallStyleOption("ios", "iPhone", "Dark screen with Decline / Accept, like an iPhone"),
-    IncomingCallStyleOption("aurora", "Aurora", "Soft multi-color glow, swipe up to answer"),
-    IncomingCallStyleOption("orbit", "Orbit", "Calm rotating glass rings, drag inward to answer"),
-    IncomingCallStyleOption("pulse", "Pulse", "Sonar-style glass ripples, tap the glass pills")
+    IncomingCallStyleOption(IncomingCallStyles.CLEAN, "Clean", "White screen. Photo and name in the middle, Decline and Accept at the bottom"),
+    IncomingCallStyleOption(IncomingCallStyles.CENTER, "Centered", "Big name on top, photo in the middle, a Reply with message button"),
+    IncomingCallStyleOption(IncomingCallStyles.SWIPE, "Swipe", "Same calm look. Drag the green or red button up to answer or decline")
 )
 
+// Made-up caller shown in every preview, so no real person's name or number is ever displayed.
+private const val SAMPLE_NAME = "Aarav Mehta"
+private const val SAMPLE_NUMBER = "+91 98765 43210"
+
 /**
- * Settings screen for picking the full-screen incoming-call visual style.
- * Each option renders a small live-animated preview built from the same
- * liquidGlass/glassCard modifiers and hue-derivation the real
- * IncomingCallScreen styles use - deliberately a simplified stand-in
- * (a small backdrop + a small ring/ripple/glow motif) rather than importing
- * the full-size composables, since the actual screen needs real caller data
- * and fills the whole display; this preview only needs to convey each
- * style's character at a glance.
+ * Picker for the full-screen incoming-call look.
+ *
+ * The big preview at the top is the REAL screen (the same composable an incoming call uses) drawn
+ * inside a phone frame at phone size and scaled down, with a made-up caller. Tap a card below it
+ * to switch style and the preview updates at once. On a dark theme two more controls appear: the
+ * glass toggle, and a light/dark preview switch so the person can see both looks without waiting
+ * for a real call.
  */
 @Composable
 fun IncomingCallStylePickerScreen(
     currentStyleId: String,
     onSelect: (String) -> Unit,
     onBack: () -> Unit,
+    glassEnabled: Boolean = true,
+    onGlassChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
+    val current = IncomingCallStyles.normalize(currentStyleId)
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -104,38 +94,168 @@ fun IncomingCallStylePickerScreen(
             Text("Incoming call screen", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
         }
 
-        Text(
-            "Pick how a full-screen incoming call looks and animates",
-            fontSize = 13.sp,
-            color = palette.textSecondary,
-            modifier = Modifier.padding(horizontal = 20.dp)
-        )
-
-        Spacer(Modifier.height(18.dp))
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            IncomingCallStyleOptions.forEach { option ->
-                IncomingCallStyleCard(
-                    option = option,
+            Text(
+                "This is exactly how an incoming call will look",
+                fontSize = 13.sp,
+                color = palette.textSecondary,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+            )
+            Spacer(Modifier.height(14.dp))
+
+            // Which look to preview. A light theme only ever has the light look, so the switch is
+            // shown only where there is a choice (dark theme).
+            var previewDark by remember { androidx.compose.runtime.mutableStateOf(palette.isDark) }
+            PhoneFramePreview(styleId = current, dark = previewDark && palette.isDark, glass = glassEnabled)
+
+            if (palette.isDark) {
+                Spacer(Modifier.height(12.dp))
+                PreviewModeSwitch(
+                    dark = previewDark,
                     palette = palette,
-                    selected = option.id == currentStyleId,
-                    onClick = { onSelect(option.id) }
+                    onChange = { previewDark = it }
+                )
+            }
+
+            Spacer(Modifier.height(18.dp))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                IncomingCallStyleOptions.forEach { option ->
+                    StyleOptionRow(
+                        option = option,
+                        palette = palette,
+                        selected = option.id == current,
+                        onClick = { onSelect(option.id) }
+                    )
+                }
+            }
+
+            if (palette.isDark) {
+                Spacer(Modifier.height(16.dp))
+                Column(Modifier.fillMaxWidth().glassCard(palette, 18.dp)) {
+                    ToggleRow(
+                        title = "Glass look on dark theme",
+                        subtitle = "Frosted dark panels. Turn off to keep the white screen even on a dark theme",
+                        checked = glassEnabled,
+                        palette = palette,
+                        onToggle = onGlassChange
+                    )
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * A phone-shaped frame around the real incoming-call composable.
+ *
+ * The content is laid out at 360 x 740 dp (a normal phone) and scaled down with graphicsLayer, so
+ * the text and buttons keep their true proportions instead of being redrawn as a mock. The frame is
+ * a rounded dark bezel with a small speaker slot at the top, which is what makes it read as "a
+ * phone" and not just a card.
+ */
+@Composable
+private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean) {
+    val bezel = 7.dp
+    val screenW = 214.dp
+    val screenH = 214.dp * 740f / 360f
+    val scale = 214f / 360f
+
+    Box(
+        modifier = Modifier
+            .size(screenW + bezel * 2, screenH + bezel * 2)
+            .clip(RoundedCornerShape(30.dp))
+            .background(Color(0xFF111318))
+            .padding(bezel),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .size(screenW, screenH)
+                .clip(RoundedCornerShape(24.dp))
+        ) {
+            Box(
+                modifier = Modifier
+                    .requiredSize(360.dp, 740.dp)
+                    .align(Alignment.TopStart)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+            ) {
+                IncomingCallScreen(
+                    callerName = SAMPLE_NAME,
+                    callerNumber = SAMPLE_NUMBER,
+                    isSavedContact = true,
+                    style = styleId,
+                    onAccept = {},
+                    onDecline = {},
+                    onQuickMessage = {},
+                    modifier = Modifier.fillMaxSize(),
+                    isPreview = true,
+                    glass = glass,
+                    forceDark = dark
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
+        // Speaker slot
+        Box(
+            Modifier
+                .padding(top = 2.dp)
+                .size(34.dp, 3.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF2A2E38))
+        )
+    }
+}
+
+/** Light / Dark preview switch (only shown on dark themes). */
+@Composable
+private fun PreviewModeSwitch(dark: Boolean, palette: DialerPalette, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .border(1.dp, palette.cardBorder, RoundedCornerShape(50))
+            .padding(3.dp)
+    ) {
+        PreviewChip("Dark glass", dark, palette) { onChange(true) }
+        PreviewChip("Light", !dark, palette) { onChange(false) }
     }
 }
 
 @Composable
-private fun IncomingCallStyleCard(
+private fun PreviewChip(label: String, selected: Boolean, palette: DialerPalette, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) palette.accent else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = if (selected) Color.White else palette.textSecondary
+        )
+    }
+}
+
+@Composable
+private fun StyleOptionRow(
     option: IncomingCallStyleOption,
     palette: DialerPalette,
     selected: Boolean,
@@ -146,26 +266,24 @@ private fun IncomingCallStyleCard(
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.98f else 1f,
         animationSpec = spring(dampingRatio = 0.75f, stiffness = 400f),
-        label = "style-card-scale"
+        label = "style-row-scale"
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(if (selected) palette.accent.copy(alpha = .10f) else Color.Transparent)
             .border(
                 width = if (selected) 1.5.dp else 1.dp,
                 color = if (selected) palette.accent.copy(alpha = .7f) else palette.cardBorder,
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(14.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        StylePreviewThumbnail(styleId = option.id, palette = palette)
-        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 option.name,
@@ -177,174 +295,19 @@ private fun IncomingCallStyleCard(
             Text(
                 option.description,
                 color = palette.textSecondary,
-                fontSize = 11.5.sp,
-                maxLines = 2
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                maxLines = 3
             )
         }
         if (selected) {
+            Spacer(Modifier.width(12.dp))
             Box(
-                Modifier
-                    .size(26.dp)
-                    .clip(CircleShape)
-                    .background(palette.accent),
+                Modifier.size(24.dp).clip(CircleShape).background(palette.accent),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(15.dp))
+                Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(14.dp))
             }
         }
-    }
-}
-
-/**
- * Small (76dp) live preview of a style's backdrop + centerpiece motif, so
- * the picker shows each style's actual liquid-glass character instead of
- * just naming it. Deliberately reuses the same accent-hue derivation the
- * real screens use, so a preview under (say) Violet theme actually looks
- * violet-tinted like the real thing would.
- */
-@Composable
-private fun StylePreviewThumbnail(styleId: String, palette: DialerPalette) {
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(palette.accent.toArgb(), hsv)
-    hsv[1] = hsv[1].coerceAtLeast(0.55f)
-    hsv[2] = 0.16f
-    val backdrop = Color(android.graphics.Color.HSVToColor(hsv))
-    val hue = hsv[0]
-
-    if (styleId == "classic" || styleId == "hyper" || styleId == "ios") {
-        // Phone-shaped preview of the REAL screen (same composable the call uses,
-        // in isPreview mode: no entrance animation, no quick-reply row, taps do
-        // nothing). Rendered at a phone size and scaled down so the text and
-        // buttons keep their true proportions instead of being redrawn as a mock.
-        SystemStylePreview(styleId)
-        return
-    }
-
-    Box(
-        modifier = Modifier
-            .size(76.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(backdrop),
-        contentAlignment = Alignment.Center
-    ) {
-        when (styleId) {
-            "orbit" -> OrbitPreviewMotif(hue)
-            "pulse" -> PulsePreviewMotif(hue)
-            else -> AuroraPreviewMotif(hue)
-        }
-    }
-}
-
-/**
- * Real incoming-call screen at 360x720 "phone" size, scaled to ~ 84x168 dp.
- * layout(...) reports the scaled size to the parent, so the card lays out at the
- * small size while the content inside is measured at full phone size.
- */
-@Composable
-private fun SystemStylePreview(styleId: String) {
-    val targetW = 84.dp
-    val targetH = 168.dp
-    val scale = 84f / 360f
-    Box(
-        modifier = Modifier
-            .size(targetW, targetH)
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
-    ) {
-        Box(
-            modifier = Modifier
-                .requiredSize(360.dp, 720.dp)
-                .align(Alignment.TopStart)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                }
-        ) {
-            IncomingCallScreen(
-                callerName = "Aarav Sharma",
-                callerNumber = "+91 98765 43210",
-                isSavedContact = true,
-                style = styleId,
-                onAccept = {},
-                onDecline = {},
-                onQuickMessage = {},
-                modifier = Modifier.fillMaxSize(),
-                isPreview = true
-            )
-        }
-    }
-}
-
-@Composable
-private fun AuroraPreviewMotif(hue: Float) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = (-8).dp, y = (-4).dp)
-                .size(38.dp)
-                .blur(18.dp)
-                .background(Color.hsl(((hue + 25) % 360), 0.7f, 0.65f).copy(alpha = 0.8f), CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = 8.dp, y = 6.dp)
-                .size(42.dp)
-                .blur(18.dp)
-                .background(Color.hsl(((hue + 240) % 360), 0.65f, 0.5f).copy(alpha = 0.8f), CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(30.dp)
-                .liquidGlass(LocalDialerPalette.current, CircleShape, tintAlpha = 0.35f)
-        )
-    }
-}
-
-@Composable
-private fun OrbitPreviewMotif(hue: Float) {
-    val transition = rememberInfiniteTransition(label = "orbit-preview-rotation")
-    val rotation by transition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing)),
-        label = "orbit-preview-rotation-value"
-    )
-    Box(contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .rotate(rotation)
-                .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .liquidGlass(LocalDialerPalette.current, CircleShape, tintAlpha = 0.35f)
-        )
-    }
-}
-
-@Composable
-private fun PulsePreviewMotif(hue: Float) {
-    val transition = rememberInfiniteTransition(label = "pulse-preview-ring")
-    val progress by transition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing)),
-        label = "pulse-preview-progress"
-    )
-    Box(contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(28.dp + 30.dp * progress)
-                .border(1.dp, Color.White.copy(alpha = (1f - progress) * 0.6f), CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .liquidGlass(LocalDialerPalette.current, CircleShape, tintAlpha = 0.35f)
-        )
     }
 }

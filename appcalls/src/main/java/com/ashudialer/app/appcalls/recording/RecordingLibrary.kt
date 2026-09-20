@@ -23,7 +23,9 @@ object RecordingLibrary {
     fun listAll(context: Context): List<File> {
         val fromMediaStore = queryMediaStore(context)
         val privateDir = File(context.filesDir, "recordings")
-        val fromPrivate = privateDir.listFiles()?.filter { it.extension.lowercase() in AUDIO_EXTENSIONS }.orEmpty()
+        // walkTopDown: recordings now live in per-source sub-folders (Phone/, WhatsApp/ ...), while
+        // ones saved by older versions sit directly in this folder. Both are picked up.
+        val fromPrivate = privateDir.walkTopDown().filter { it.isFile && it.extension.lowercase() in AUDIO_EXTENSIONS }.toList()
         return (fromMediaStore + fromPrivate)
             .distinctBy { it.absolutePath }
             .sortedByDescending { it.lastModified() }
@@ -39,19 +41,31 @@ object RecordingLibrary {
     private fun queryMediaStore(context: Context): List<File> {
         val results = mutableListOf<File>()
         try {
-            val projection = arrayOf(MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.DATA)
+            // minSdk is 29 (Android 10), which is where RELATIVE_PATH was introduced, so the column
+            // is always available on every device this app installs on.
+            val projection = arrayOf(
+                MediaStore.Audio.Media.DISPLAY_NAME,
+                MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.RELATIVE_PATH
+            )
             val relative = "Music/${RecordingStorage.FOLDER_NAME}/"
+            // Prefix match (LIKE 'Music/Ashu Dialer/%'): matches the old flat folder AND every
+            // sub-folder. "_" and "%" are LIKE wildcards, but the folder name contains neither.
             val (selection, args) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                "${MediaStore.Audio.Media.RELATIVE_PATH} = ?" to arrayOf(relative)
+                "${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?" to arrayOf("$relative%")
             } else null to null
 
             context.contentResolver.query(collectionUri(), projection, selection, args, null)?.use { c ->
                 val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
                 val dataCol = c.getColumnIndex(MediaStore.Audio.Media.DATA)
+                val relCol = c.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
                 val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
                 while (c.moveToNext()) {
                     val path = if (dataCol >= 0) c.getString(dataCol) else null
-                    results.add(path?.let(::File) ?: File(File(musicDir, RecordingStorage.FOLDER_NAME), c.getString(nameCol)))
+                    // "Music/Ashu Dialer/WhatsApp/" -> "Ashu Dialer/WhatsApp"
+                    val rel = if (relCol >= 0) c.getString(relCol)?.removePrefix("Music/")?.trim('/') else null
+                    val dir = if (!rel.isNullOrBlank()) File(musicDir, rel) else File(musicDir, RecordingStorage.FOLDER_NAME)
+                    results.add(path?.let(::File) ?: File(dir, c.getString(nameCol)))
                 }
             }
         } catch (e: Exception) {
@@ -65,8 +79,10 @@ object RecordingLibrary {
         try {
             val resolver = context.contentResolver
             val (selection, args) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} = ?" to
-                    arrayOf(file.name, "Music/${RecordingStorage.FOLDER_NAME}/")
+                // Name + folder PREFIX: the file may be in "Ashu Dialer/" (old layout) or in a
+                // sub-folder such as "Ashu Dialer/WhatsApp/" (new layout).
+                "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?" to
+                    arrayOf(file.name, "Music/${RecordingStorage.FOLDER_NAME}/%")
             } else {
                 "${MediaStore.Audio.Media.DISPLAY_NAME} = ?" to arrayOf(file.name)
             }

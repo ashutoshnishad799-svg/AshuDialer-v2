@@ -150,28 +150,33 @@ class CallRecorder(private val context: Context) {
 
     companion object {
         private const val PRIVATE_SPACE_RECORDINGS_DIR = "private_space_recordings"
+        private val KNOWN_SUB_FOLDERS = setOf("Phone", "WhatsApp", "Telegram", "Instagram", "Snapchat")
         private const val START_WAIT_MS = 8_000L
         private const val POLL_MS = 100L
 
         fun moveToPrivateSpace(context: Context, publicFile: File): File? {
             return try {
+                // Keep the source sub-folder (WhatsApp/, Phone/ ...) so a recording can be moved back
+                // out to the folder it came from. Older flat recordings simply have no sub-folder.
+                val sub = publicFile.parentFile?.name
+                    ?.takeIf { it in KNOWN_SUB_FOLDERS || it.all { c -> c.isLetterOrDigit() } && it != RECORDINGS_FOLDER_NAME && it != "recordings" && it != "Music" }
                 val privateDir = File(context.filesDir, PRIVATE_SPACE_RECORDINGS_DIR).apply { mkdirs() }
                 val destination = File(privateDir, publicFile.name)
                 publicFile.copyTo(destination, overwrite = true)
+                if (sub != null) File(privateDir, ".origin_${publicFile.name}").writeText(sub)
 
-                try {
-                    val resolver = context.contentResolver
-                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-                    } else {
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                    }
-                    resolver.delete(collection, "${MediaStore.Audio.Media.DATA} = ?", arrayOf(publicFile.absolutePath))
-                } catch (e: Exception) {
-                    Log.w("CallRecorder", "Couldn't remove MediaStore row for moved recording", e)
+                // The private copy is complete and verified; only NOW remove the public original.
+                // Verified by size so a truncated copy can never lead to the only good file being deleted.
+                if (destination.length() != publicFile.length()) {
+                    destination.delete()
+                    File(privateDir, ".origin_${publicFile.name}").delete()
+                    return null
                 }
-                if (publicFile.exists()) publicFile.delete()
-
+                // RecordingLibrary.delete removes the exact MediaStore row (name + folder) AND the file.
+                // The old code matched the row by the DATA column, which is not reliable under scoped
+                // storage on Android 10+, so a copy of a "private" recording could stay visible in
+                // Music/Ashu Dialer and to every other app.
+                RecordingLibrary.delete(context, publicFile)
                 destination
             } catch (e: Exception) {
                 Log.w("CallRecorder", "Failed to move recording to Private Space", e)
@@ -185,7 +190,9 @@ class CallRecorder(private val context: Context) {
                 val values = ContentValues().apply {
                     put(MediaStore.Audio.Media.DISPLAY_NAME, privateFile.name)
                     put(MediaStore.Audio.Media.MIME_TYPE, "audio/mp4")
-                    put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/$RECORDINGS_FOLDER_NAME")
+                    val originMarker = File(privateFile.parentFile, ".origin_${privateFile.name}")
+                    val sub = runCatching { originMarker.readText().trim() }.getOrNull()?.takeIf { it.isNotBlank() }
+                    put(MediaStore.Audio.Media.RELATIVE_PATH, if (sub != null) "Music/$RECORDINGS_FOLDER_NAME/$sub" else "Music/$RECORDINGS_FOLDER_NAME")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         put(MediaStore.Audio.Media.IS_PENDING, 1)
                     }
@@ -203,6 +210,7 @@ class CallRecorder(private val context: Context) {
                     resolver.update(uri, values, null, null)
                 }
                 privateFile.delete()
+                runCatching { File(privateFile.parentFile, ".origin_${privateFile.name}").delete() }
 
                 queryMediaStoreRecordings(context).firstOrNull { it.name == privateFile.name }
             } catch (e: Exception) {
@@ -214,13 +222,15 @@ class CallRecorder(private val context: Context) {
         fun listPrivateSpaceRecordings(context: Context): List<File> {
             val dir = File(context.filesDir, PRIVATE_SPACE_RECORDINGS_DIR)
             if (!dir.exists()) return emptyList()
-            return (dir.listFiles()?.toList() ?: emptyList()).sortedByDescending { it.lastModified() }
+            return (dir.listFiles()?.toList() ?: emptyList())
+                .filter { it.isFile && !it.name.startsWith(".") }
+                .sortedByDescending { it.lastModified() }
         }
 
         fun wipeAllPrivateSpaceRecordings(context: Context) {
             val dir = File(context.filesDir, PRIVATE_SPACE_RECORDINGS_DIR)
             if (!dir.exists()) return
-            dir.listFiles()?.forEach { it.delete() }
+            dir.listFiles()?.forEach { it.delete() }   // includes the hidden .origin_ markers
         }
 
         /** All finished recordings (Music/Ashu Dialer + private app folder), newest first. */

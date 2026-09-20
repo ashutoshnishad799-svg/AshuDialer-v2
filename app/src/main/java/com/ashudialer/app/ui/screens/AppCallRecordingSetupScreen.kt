@@ -45,6 +45,8 @@ fun AppCallRecordingSetupScreen(
 
     var whatsapp by remember { mutableStateOf(prefs.recordWhatsApp) }
     var telegram by remember { mutableStateOf(prefs.recordTelegram) }
+    var instagram by remember { mutableStateOf(prefs.recordInstagram) }
+    var snapchat by remember { mutableStateOf(prefs.recordSnapchat) }
     var shizukuOk by remember { mutableStateOf(false) }
     var notifAccess by remember { mutableStateOf(false) }
 
@@ -64,7 +66,7 @@ fun AppCallRecordingSetupScreen(
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back", tint = palette.textPrimary) }
             Spacer(Modifier.width(4.dp))
-            Text("WhatsApp & Telegram calls", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary, modifier = Modifier.weight(1f))
+            Text("App calls", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary, modifier = Modifier.weight(1f))
         }
 
         LazyColumn(
@@ -74,7 +76,7 @@ fun AppCallRecordingSetupScreen(
         ) {
             item {
                 Text(
-                    "Voice and video calls inside WhatsApp and Telegram never go through the phone network, so Android gives no direct " +
+                    "Voice and video calls inside WhatsApp, Telegram, Instagram and Snapchat never go through the phone network, so Android gives no direct " +
                         "way to record them. Ashu Dialer records what comes out of the phone's speaker while the call is on, using Shizuku. " +
                         "For the best result use the loudspeaker or headphones and keep the volume up.",
                     fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 18.sp
@@ -105,12 +107,19 @@ fun AppCallRecordingSetupScreen(
                     AppSwitch("Record Telegram calls", "Telegram and Telegram X", telegram, palette) {
                         telegram = it; prefs.recordTelegram = it
                     }
+                    AppSwitch("Record Instagram calls", "Instagram and Instagram Lite", instagram, palette) {
+                        instagram = it; prefs.recordInstagram = it
+                    }
+                    AppSwitch("Record Snapchat calls", "Voice and video calls in Snapchat", snapchat, palette) {
+                        snapchat = it; prefs.recordSnapchat = it
+                    }
                 }
             }
 
             item {
                 Text(
-                    "Recordings appear in the Recordings tab, named after the app (for example WhatsApp_Rahul_...). " +
+                    "Recordings appear in the Recordings tab and are saved in a folder named after the app (Music/Ashu Dialer/WhatsApp, Telegram, Instagram, Snapchat). " +
+                        "Instagram and Snapchat do not label their call notification the way WhatsApp and Telegram do, so those two are detected from the ongoing call notification; if one is not picked up on your phone, tell me on Telegram from Help & feedback. " +
                         "The master \"Record calls\" switch in Recording settings must be on as well.",
                     fontSize = 12.sp, color = palette.textSecondary, lineHeight = 17.sp
                 )

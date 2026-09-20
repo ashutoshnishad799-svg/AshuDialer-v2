@@ -66,7 +66,16 @@ class RecordingPrefs(private val context: Context) {
         get() = prefs.getBoolean("record_telegram", false)
         set(v) = prefs.edit { putBoolean("record_telegram", v) }
 
-    val anyAppCallRecordingEnabled: Boolean get() = recordWhatsApp || recordTelegram
+    var recordInstagram: Boolean
+        get() = prefs.getBoolean("record_instagram", false)
+        set(v) = prefs.edit { putBoolean("record_instagram", v) }
+
+    var recordSnapchat: Boolean
+        get() = prefs.getBoolean("record_snapchat", false)
+        set(v) = prefs.edit { putBoolean("record_snapchat", v) }
+
+    val anyAppCallRecordingEnabled: Boolean
+        get() = recordWhatsApp || recordTelegram || recordInstagram || recordSnapchat
 
     // ---- Filters ------------------------------------------------------------------------
     var ignoreAnonymousIncoming: Boolean

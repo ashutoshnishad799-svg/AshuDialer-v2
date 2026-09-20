@@ -128,6 +128,9 @@ private fun looksLikePhoneNumber(text: String): Boolean {
     return formattingCharCount <= digitsOnly.length / 2
 }
 
+/** Tallest the contact-match list area ever gets (about 2.5 rows at ~64dp each). */
+private const val MAX_MATCH_ZONE_DP = 160f
+
 @Composable
 fun DialerScreen(
     contacts: List<Contact>,
@@ -332,9 +335,13 @@ fun DialerScreen(
         // against eleven phone sizes (320x480 up to a 673x841 fold): every size from
         // 360x640 up fits, the smallest key is ~54dp, and the ones that cannot fit
         // (320x480, landscape) fall back to scrolling - see `needsScroll`.
+        // The key is capped at 72dp - the size this dialer has always had and the one that looks
+        // right. The solver only SHRINKS it (small phones, big system font/display size); it never
+        // grows it past 72dp, because on a tall phone that made the keys look oversized. Whatever
+        // height is left over goes to the number / contact-match area above the keypad instead.
         val keySizeF = ((availH - topFixedF - 40f) / 6.14f)
             .coerceAtMost(keyFromWidth)
-            .coerceAtMost(92f)
+            .coerceAtMost(72f)
             .coerceAtLeast(44f)
 
         val sidePad = sidePadF.dp
@@ -358,8 +365,14 @@ fun DialerScreen(
         // Because it is derived from the same numbers as everything else, it is a
         // constant for a given screen: typing or backspacing never changes it, so the
         // dialpad still cannot jump (the original "dialpad moves" fix is preserved).
-        val matchZoneF = (availH - topPadF - numberZoneF - hintZoneF - bottomBlockF).coerceAtLeast(minMatchF)
+        val leftoverF = availH - topPadF - numberZoneF - hintZoneF - bottomBlockF
+        // The match list is capped (about 2.5 contact rows). Anything beyond that is NOT given to it:
+        // an ever-taller empty list area just pushes the keypad down and leaves a hole above it.
+        val matchZoneF = leftoverF.coerceAtLeast(minMatchF).coerceAtMost(MAX_MATCH_ZONE_DP)
         val matchZoneH = matchZoneF.dp
+        // ...the remaining height becomes plain space ABOVE the number area, so the dialpad and the
+        // call button stay anchored to the bottom (where the thumb is), like every stock dialer.
+        val topSpacerF = (leftoverF - matchZoneF).coerceAtLeast(0f)
 
         val neededF = topPadF + numberZoneF + hintZoneF + matchZoneF + bottomBlockF
         // True on a screen too short for a full dialpad (very small phones, landscape):
@@ -382,6 +395,12 @@ fun DialerScreen(
         // jumpiness the fixed-height zones below were built to prevent.
         verticalArrangement = Arrangement.Top
     ) {
+        // Leftover height on tall phones: empty space ABOVE the number area, so everything below it
+        // (number, matches, keypad, call button) sits at the bottom within thumb reach. It is 0 on
+        // phones where the screen is fully used, and constant for a given screen (it never changes
+        // while typing), so the "dialpad jumps" fixes are unaffected.
+        if (topSpacerF > 0f) Spacer(Modifier.height(topSpacerF.dp))
+
         // Fixed-height zone for the typed number + match state. This used to
         // be a plain Column that grew taller as more contacts matched, which
         // pushed the dialpad further down each keystroke - with enough

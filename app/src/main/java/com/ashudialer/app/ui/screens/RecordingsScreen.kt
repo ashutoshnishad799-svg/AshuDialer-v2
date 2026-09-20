@@ -86,7 +86,7 @@ fun RecordingsScreen(
     var selectedFiles by remember { mutableStateOf(setOf<File>()) }
     val inSelectionMode = selectedFiles.isNotEmpty()
 
-    // Separate pages for normal calls, WhatsApp and Telegram (plus "All").
+    // Separate pages for normal calls, WhatsApp, Telegram, Instagram and Snapchat (plus "All").
     var kind by remember { mutableStateOf(RecordingKind.ALL) }
     val visibleRecordings = remember(recordings, kind) {
         if (kind == RecordingKind.ALL) recordings else recordings.filter { kindOf(it) == kind }
@@ -178,7 +178,7 @@ fun RecordingsScreen(
                 Text("No recordings yet", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (kind == RecordingKind.WHATSAPP || kind == RecordingKind.TELEGRAM)
+                    if (kind == RecordingKind.WHATSAPP || kind == RecordingKind.TELEGRAM || kind == RecordingKind.INSTAGRAM || kind == RecordingKind.SNAPCHAT)
                         "${kind.title} calls are recorded automatically once they are turned on in Recording settings."
                     else "Calls are recorded automatically once setup is finished. You can also tap Record during a call.",
                     fontSize = 13.sp, color = palette.textSecondary
@@ -633,14 +633,32 @@ private fun parseRecordingLabel(fileName: String): Pair<String, String> {
     }
 }
 
-/** Which page a recording belongs on: phone call, WhatsApp or Telegram (WhatsApp/Telegram names start with the app name). */
-private enum class RecordingKind(val title: String) { ALL("All"), PHONE("Phone"), WHATSAPP("WhatsApp"), TELEGRAM("Telegram") }
+/** The pages of the Recordings list: everything, phone calls, and one page per supported calling app. */
+private enum class RecordingKind(val title: String) {
+    ALL("All"), PHONE("Phone"), WHATSAPP("WhatsApp"), TELEGRAM("Telegram"), INSTAGRAM("Instagram"), SNAPCHAT("Snapchat")
+}
 
+/**
+ * Which tab a recording belongs in.
+ *
+ * The FOLDER is checked first (Music/Ashu Dialer/WhatsApp/... - see RecordingStorage.subFolderFor),
+ * because that is always right, including when the person edited the file-name template and the
+ * app's name no longer appears in the file name. The file name is the fallback, which is what
+ * recordings made by older versions (saved directly in "Ashu Dialer/") rely on.
+ */
 private fun kindOf(file: File): RecordingKind {
+    val folder = file.parentFile?.name?.lowercase().orEmpty()
     val n = file.name.lowercase()
     return when {
+        folder == "whatsapp" -> RecordingKind.WHATSAPP
+        folder == "telegram" -> RecordingKind.TELEGRAM
+        folder == "instagram" -> RecordingKind.INSTAGRAM
+        folder == "snapchat" -> RecordingKind.SNAPCHAT
+        folder == "phone" -> RecordingKind.PHONE
         n.startsWith("whatsapp") -> RecordingKind.WHATSAPP
         n.startsWith("telegram") -> RecordingKind.TELEGRAM
+        n.startsWith("instagram") -> RecordingKind.INSTAGRAM
+        n.startsWith("snapchat") -> RecordingKind.SNAPCHAT
         else -> RecordingKind.PHONE
     }
 }

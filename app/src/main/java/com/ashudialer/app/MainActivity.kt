@@ -302,6 +302,10 @@ class MainActivity : ComponentActivity() {
             var updateCheck by remember { mutableStateOf<com.ashudialer.app.data.UpdateCheckResult?>(null) }
             var updateCheckBusy by remember { mutableStateOf(false) }
             var updateInstallBusy by remember { mutableStateOf(false) }
+            // 0..100 while downloading, -1 when the server did not report a size.
+            var updateDownloadPercent by remember { mutableStateOf(0) }
+            // True once a COMPLETE update APK is sitting in the cache, so a second tap installs it instead of re-downloading.
+            var pendingUpdateApkReady by remember { mutableStateOf(false) }
             val updateChecker = remember { com.ashudialer.app.data.UpdateChecker(context) }
             var overlay by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = OverlayScreenSaver) { mutableStateOf(OverlayScreen.NONE) }
             var privateSpaceStep by remember { mutableStateOf(PrivateSpaceStep.CHECKING) }
@@ -817,6 +821,7 @@ class MainActivity : ComponentActivity() {
                                 enableRecordingWhenReady = false
                                 if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
                                     viewModel.setCallRecordingEnabled(true)
+                                    com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.CALL_RECORDING_ENABLED)
                                 }
                             }
                             overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS
@@ -1399,6 +1404,7 @@ class MainActivity : ComponentActivity() {
                                                     if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
                                                         // Already set up: just turn it on, no detour.
                                                         viewModel.setCallRecordingEnabled(true)
+                                                        com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.CALL_RECORDING_ENABLED)
                                                     } else {
                                                         recordingFlowFromSettings = true
                                                         enableRecordingWhenReady = true
@@ -1413,7 +1419,10 @@ class MainActivity : ComponentActivity() {
                                                 recordingFlowFromSettings = true
                                                 overlay = OverlayScreen.RECORDING_SETTINGS
                                             },
-                                            onToggleAutoRecordAll = { enabled -> viewModel.setAutoRecordAll(enabled) },
+                                            onToggleAutoRecordAll = { enabled ->
+                                                viewModel.setAutoRecordAll(enabled)
+                                                if (enabled) com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.AUTO_RECORD_ENABLED)
+                                            },
                                             onToggleLedFlash = { enabled -> viewModel.setLedFlashForAlerts(enabled) },
                                             onToggleVibrateOnButton = { enabled -> viewModel.setVibrateOnButtonPress(enabled) },
                                             onToggleKeepCallsInNotifications = { enabled -> viewModel.setKeepCallsInNotifications(enabled) },
@@ -1560,6 +1569,7 @@ class MainActivity : ComponentActivity() {
                                                     enableRecordingWhenReady = false
                                                     if (com.ashudialer.app.telecom.RecordingSetupChecker.isReady(context)) {
                                                         viewModel.setCallRecordingEnabled(true)
+                                                        com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.CALL_RECORDING_ENABLED)
                                                     }
                                                 }
                                                 overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDING_SETTINGS
@@ -1587,6 +1597,7 @@ class MainActivity : ComponentActivity() {
                                                 result = updateCheck,
                                                 busy = updateCheckBusy,
                                                 installing = updateInstallBusy,
+                                                downloadPercent = updateDownloadPercent,
                                                 onBack = { overlay = OverlayScreen.NONE },
                                                 onCheck = {
                                                     updateCheckBusy = true
@@ -1598,41 +1609,77 @@ class MainActivity : ComponentActivity() {
                                                 onInstallUpdate = {
                                                     val url = updateCheck?.apkDownloadUrl
                                                     if (url != null) {
-                                                        updateInstallBusy = true
-                                                    scope.launch {
                                                         val destination = java.io.File(context.cacheDir, "updates/AshuPhone-update.apk")
-                                                        val ok = updateChecker.downloadApk(url, destination)
-                                                        updateInstallBusy = false
-                                                        if (ok) {
+
+                                                        // Opens the system installer for an APK that is already on disk.
+                                                        // Returns false when the person still has to allow "Install
+                                                        // unknown apps" for this app (Android 8+), after taking them to
+                                                        // that exact settings page.
+                                                        fun launchInstaller(): Boolean {
                                                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                                                                 !context.packageManager.canRequestPackageInstalls()) {
                                                                 try {
-                                                                    val settingsIntent = Intent(
-                                                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                                                        Uri.parse("package:${context.packageName}")
+                                                                    context.startActivity(
+                                                                        Intent(
+                                                                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                                            Uri.parse("package:${context.packageName}")
+                                                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                                     )
-                                                                    context.startActivity(settingsIntent)
-                                                                    Toast.makeText(context, "Allow Ashu Dialer to install updates, then tap Download & install again.", Toast.LENGTH_LONG).show()
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        "Turn on \"Allow from this source\", then come back - the update is already downloaded.",
+                                                                        Toast.LENGTH_LONG
+                                                                    ).show()
                                                                 } catch (_: Exception) {
                                                                     Toast.makeText(context, "Please allow installs from this app in Android settings.", Toast.LENGTH_LONG).show()
                                                                 }
-                                                            } else {
-                                                                try {
-                                                                    val uri = FileProvider.getUriForFile(context, "com.ashudialer.app.fileprovider", destination)
-                                                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                                return false
+                                                            }
+                                                            return try {
+                                                                val uri = FileProvider.getUriForFile(context, "com.ashudialer.app.fileprovider", destination)
+                                                                context.startActivity(
+                                                                    Intent(Intent.ACTION_VIEW).apply {
                                                                         setDataAndType(uri, "application/vnd.android.package-archive")
                                                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                                                     }
-                                                                    context.startActivity(intent)
-                                                                } catch (_: Exception) {
-                                                                    Toast.makeText(context, "Couldn't open the installer", Toast.LENGTH_SHORT).show()
+                                                                )
+                                                                true
+                                                            } catch (_: Exception) {
+                                                                Toast.makeText(context, "Couldn't open the installer", Toast.LENGTH_SHORT).show()
+                                                                false
+                                                            }
+                                                        }
+
+                                                        // A previous tap already downloaded the complete file (typically:
+                                                        // the person was sent to allow "unknown apps" and has now come
+                                                        // back). Do not download it a second time - just install it. The
+                                                        // size check stops a stale/partial file from an older failed
+                                                        // attempt from being used.
+                                                        if (destination.isFile && destination.length() > 1024L * 100 && pendingUpdateApkReady) {
+                                                            launchInstaller()
+                                                        } else {
+                                                            updateInstallBusy = true
+                                                            scope.launch {
+                                                                updateDownloadPercent = 0
+                                                                val ok = updateChecker.downloadApk(url, destination) { pct ->
+                                                                    // called from an IO thread; state writes are thread-safe
+                                                                    updateDownloadPercent = pct
+                                                                }
+                                                                updateInstallBusy = false
+                                                                if (ok) {
+                                                                    pendingUpdateApkReady = true
+                                                                    launchInstaller()
+                                                                } else {
+                                                                    pendingUpdateApkReady = false
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        "Update download failed. Check your internet and try again.",
+                                                                        Toast.LENGTH_LONG
+                                                                    ).show()
                                                                 }
                                                             }
-                                                        } else {
-                                                            android.widget.Toast.makeText(context, "Update download failed", android.widget.Toast.LENGTH_SHORT).show()
                                                         }
-                                                    }
                                                     }
                                                 },
                                                 modifier = Modifier.fillMaxSize()
@@ -1693,8 +1740,13 @@ class MainActivity : ComponentActivity() {
                                         )
                                         OverlayScreen.INCOMING_CALL_STYLE -> IncomingCallStylePickerScreen(
                                             currentStyleId = settings.incomingCallStyle,
-                                            onSelect = { styleId -> viewModel.setIncomingCallStyle(styleId) },
+                                            onSelect = { styleId ->
+                                                viewModel.setIncomingCallStyle(styleId)
+                                                com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.INCOMING_STYLE_CHANGED, styleId)
+                                            },
                                             onBack = { overlay = OverlayScreen.NONE },
+                                            glassEnabled = settings.incomingCallGlass,
+                                            onGlassChange = { viewModel.setIncomingCallGlass(it) },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.NONE -> {}

@@ -27,6 +27,12 @@ class AppCallNotificationListenerService : NotificationListenerService() {
 
     companion object {
         private const val TAG = "AppCalls:NotifListener"
+
+        /** Lower-case fragments that appear in a call notification's text in the languages the apps ship in most. */
+        private val CALL_WORDS = listOf(
+            "call", "calling", "ringing", "in call", "video chat", "voice chat", "on a call",
+            "कॉल", "बुला"   // Hindi: "call" / "calling"
+        )
     }
 
     /** Notification key -> target for every call currently considered active (WhatsApp re-posts its notification every second). */
@@ -62,7 +68,7 @@ class AppCallNotificationListenerService : NotificationListenerService() {
     private fun handlePosted(sbn: StatusBarNotification) {
         val target = AppCallTarget.fromPackageName(sbn.packageName) ?: return
         if (!prefs.callRecordingEnabled || !isEnabled(target)) return
-        if (!looksLikeOngoingCall(sbn.notification)) return
+        if (!looksLikeOngoingCall(sbn.notification, sbn.packageName, target.looseDetection)) return
         // Already tracking this key -> it's just the per-second duration tick, not a new call.
         if (activeCalls.putIfAbsent(sbn.key, target) != null) return
 
@@ -87,11 +93,59 @@ class AppCallNotificationListenerService : NotificationListenerService() {
     private fun isEnabled(target: AppCallTarget) = when (target) {
         AppCallTarget.WHATSAPP -> prefs.recordWhatsApp
         AppCallTarget.TELEGRAM -> prefs.recordTelegram
+        AppCallTarget.INSTAGRAM -> prefs.recordInstagram
+        AppCallTarget.SNAPCHAT -> prefs.recordSnapchat
     }
 
-    /** Ongoing (not a dismissible missed-call) notification tagged as a call. */
-    private fun looksLikeOngoingCall(n: Notification): Boolean =
-        (n.flags and Notification.FLAG_ONGOING_EVENT) != 0 && n.category == Notification.CATEGORY_CALL
+    /**
+     * Is this notification an in-progress call?
+     *
+     * STRICT rule (WhatsApp, Telegram): an ongoing notification tagged CATEGORY_CALL. That pairing
+     * is precise - nothing but a live call has both.
+     *
+     * LOOSE rule (Instagram, Snapchat - [loose] = true): those apps do not reliably set
+     * CATEGORY_CALL, so the strict rule alone would never fire. The loose rule accepts an ONGOING
+     * notification (a chat message, like or story reply is never ongoing - it is dismissible) that
+     * has ANY of these call signals:
+     *   - category is CALL, or
+     *   - it carries a call-style hint: Notification.CallStyle / EXTRA_CALL_TYPE (Android 12+), or
+     *   - it uses a full-screen intent (how an incoming call is shown), or
+     *   - its text mentions a call ("call", "calling", "ringing", "in call", "video chat").
+     * Requiring FLAG_ONGOING_EVENT first is what keeps ordinary chat notifications from ever
+     * starting a recording.
+     *
+     * Every decision is logged with the exact fields seen, so if an app's call notification
+     * is not recognised the log shows precisely what it looked like.
+     */
+    private fun looksLikeOngoingCall(n: Notification, pkg: String, loose: Boolean): Boolean {
+        val ongoing = (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
+        if (!ongoing) return false
+        if (n.category == Notification.CATEGORY_CALL) return true
+        if (!loose) return false
+
+        val extras = n.extras
+        val title = extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        val sub = extras?.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty()
+        val haystack = "$title $text $sub".lowercase()
+        val mentionsCall = CALL_WORDS.any { haystack.contains(it) }
+        // Notification.EXTRA_CALL_TYPE exists from Android 12 (API 31); the app supports API 29+, so the
+        // constant is only touched inside a plain SDK_INT check that Android Lint recognises.
+        val hasCallStyle = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            extras?.containsKey(Notification.EXTRA_CALL_TYPE) == true
+        } else {
+            false
+        }
+        val hasFullScreen = n.fullScreenIntent != null
+
+        val verdict = mentionsCall || hasCallStyle || hasFullScreen
+        AppCallsLogger.d(
+            TAG,
+            "loose-detect $pkg: ongoing=true category=${n.category} callStyle=$hasCallStyle " +
+                "fullScreen=$hasFullScreen mentionsCall=$mentionsCall title='${title.take(40)}' text='${text.take(60)}' -> $verdict"
+        )
+        return verdict
+    }
 
     private fun sendStop() {
         val intent = Intent(applicationContext, RecordingForegroundService::class.java)

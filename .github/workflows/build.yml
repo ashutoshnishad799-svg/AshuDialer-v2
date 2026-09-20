@@ -3,7 +3,7 @@ name: Build AshuPhone (APK)
 # One job: build and sign a single release APK, then publish it as a GitHub Release.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -172,5 +172,13 @@ jobs:
           else
             gh release create "$TAG" ci-artifacts/AshuPhone-Release-Signed.apk \
               --title "Ashu Phone ${VERSION}" \
+              --latest \
               --generate-notes
           fi
+          # The in-app updater downloads the asset by the NAME "AshuPhone-<version>.apk" (see
+          # public/latest.json). Upload a copy under exactly that name so both the GitHub API
+          # fallback and the Firebase manifest URL resolve to a real file.
+          cp ci-artifacts/AshuPhone-Release-Signed.apk "ci-artifacts/AshuPhone-${VERSION}.apk"
+          gh release upload "$TAG" "ci-artifacts/AshuPhone-${VERSION}.apk" --clobber
+          # Mark it as the latest release even when it was created earlier (idempotent).
+          gh release edit "$TAG" --latest || true

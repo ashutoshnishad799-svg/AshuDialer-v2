@@ -27,6 +27,8 @@ fun UpdateScreen(
     result: UpdateCheckResult?,
     busy: Boolean,
     installing: Boolean = false,
+    // 0..100 while the APK downloads; -1 = the server did not say how big the file is.
+    downloadPercent: Int = 0,
     onBack: () -> Unit,
     onCheck: () -> Unit,
     onInstallUpdate: () -> Unit = {},
@@ -71,13 +73,33 @@ fun UpdateScreen(
                 Spacer(Modifier.height(18.dp))
 
                 when {
-                    busy || installing -> {
+                    installing -> {
+                        Text("Downloading update", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                        Spacer(Modifier.height(14.dp))
+                        if (downloadPercent in 0..100) {
+                            // Determinate bar: the person sees it moving and knows it is not stuck.
+                            LinearProgressIndicator(
+                                progress = downloadPercent / 100f,
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                                color = palette.accent,
+                                trackColor = palette.cardBorder
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text("$downloadPercent%", fontSize = 13.sp, color = palette.textSecondary)
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)),
+                                color = palette.accent,
+                                trackColor = palette.cardBorder
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text("Keep the app open until it finishes", fontSize = 12.sp, color = palette.textSecondary)
+                    }
+                    busy -> {
                         CircularProgressIndicator(color = palette.accent)
                         Spacer(Modifier.height(10.dp))
-                        Text(
-                            if (installing) "Downloading update…" else "Checking for updates…",
-                            color = palette.textSecondary
-                        )
+                        Text("Checking for updates…", color = palette.textSecondary)
                     }
                     result?.error != null -> {
                         Icon(Icons.Filled.Warning, null, tint = palette.danger, modifier = Modifier.size(34.dp))
@@ -122,8 +144,8 @@ fun UpdateScreen(
                     Icon(Icons.Filled.CloudDone, null, tint = palette.accent, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Public update server", fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
-                        Text("Firebase Hosting • No GitHub token required", fontSize = 12.sp, color = palette.textSecondary)
+                        Text("Official releases", fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+                        Text("Downloaded from this app's GitHub Releases page", fontSize = 12.sp, color = palette.textSecondary)
                     }
                 }
             }

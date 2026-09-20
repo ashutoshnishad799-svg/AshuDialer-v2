@@ -649,6 +649,10 @@ class MainViewModel(
         viewModelScope.launch { appSettingsRepository.setFontSizeIndex(index) }
     }
 
+    fun setIncomingCallGlass(enabled: Boolean) {
+        viewModelScope.launch { appSettingsRepository.setIncomingCallGlass(enabled) }
+    }
+
     fun setIncomingCallStyle(style: String) {
         viewModelScope.launch { appSettingsRepository.setIncomingCallStyle(style) }
     }

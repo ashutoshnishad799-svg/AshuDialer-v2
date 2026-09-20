@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
@@ -382,7 +381,7 @@ private fun PersonalizePage(
     ) {
         Spacer(Modifier.height(18.dp))
         Text(
-            "Make it yours",
+            "Choose a theme",
             color = palette.textPrimary,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
@@ -391,45 +390,34 @@ private fun PersonalizePage(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Tap a preview to try it - you can change it anytime",
+            "You can change it anytime in Settings",
             color = palette.textSecondary,
-            fontSize = 13.5.sp,
+            fontSize = 14.sp,
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // Two columns of live previews (not 3 columns of tiny dots) so each
-        // card is big enough to show what the app will actually look like:
-        // the theme's own background gradient, a card, and its accent button.
+        // Three tiles per row: each is just the theme's own background, nothing drawn on top of it.
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+            columns = GridCells.Fixed(3),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
         ) {
             item(key = "system") {
                 val auto = com.ashudialer.app.ui.theme.AUTO_THEME_ID
-                OnboardingThemeCard(
-                    name = "System",
-                    subtitle = "Follows your phone",
-                    previewPalette = null,
-                    fallbackStart = palette.textSecondary.copy(alpha = .32f),
-                    fallbackEnd = palette.textPrimary.copy(alpha = .68f),
+                OnboardingThemeTile(
+                    name = "Auto",
+                    background = Brush.linearGradient(listOf(Color(0xFFF2F4F8), Color(0xFF1F232B))),
                     selected = currentThemeId == auto,
                     onClick = { onThemeSelected(auto) }
                 )
             }
-
             items(AllPalettes, key = { it.id }) { swatch ->
-                OnboardingThemeCard(
+                OnboardingThemeTile(
                     name = swatch.displayName,
-                    subtitle = if (swatch.isDark) "Dark" else "Light",
-                    previewPalette = swatch,
-                    fallbackStart = swatch.swatchStart,
-                    fallbackEnd = swatch.swatchEnd,
+                    background = swatch.background,
                     selected = swatch.id == currentThemeId,
                     onClick = { onThemeSelected(swatch.id) }
                 )
@@ -439,138 +427,73 @@ private fun PersonalizePage(
 }
 
 /**
- * A live mini-preview of one theme: its real background gradient, a glass-style
- * card holding a fake call row, and a button in its accent colour. A selected
- * card gets an accent ring plus a check badge.
- *
- * [previewPalette] is null only for the "System" card, which has no single
- * palette (it follows the phone's light/dark setting), so that one shows a
- * plain two-tone swatch instead.
+ * One theme tile, kept deliberately plain: the theme's real background gradient in a rounded
+ * rectangle, its name underneath, and - only when chosen - a thin accent outline with a small tick.
+ * No mock UI drawn inside it, no bounce or scale animation; the only motion is a short fade of the
+ * outline.
  */
 @Composable
-private fun OnboardingThemeCard(
+private fun OnboardingThemeTile(
     name: String,
-    subtitle: String,
-    previewPalette: DialerPalette?,
-    fallbackStart: Color,
-    fallbackEnd: Color,
+    background: Brush,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 380f),
-        label = "theme-card-scale"
-    )
-    val ringAlpha by animateFloatAsState(
+    val palette = LocalDialerPalette.current
+    val outline by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "theme-card-ring"
+        animationSpec = tween(180),
+        label = "theme-tile-outline"
     )
-    val accent = previewPalette?.accent ?: LocalDialerPalette.current.accent
-    val labelPalette = LocalDialerPalette.current
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(14.dp)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(132.dp)
+                .aspectRatio(0.78f)
                 .clip(shape)
-                .background(
-                    if (previewPalette != null) previewPalette.background
-                    else Brush.linearGradient(listOf(fallbackStart, fallbackEnd))
+                .background(background)
+                .border(
+                    width = 1.dp,
+                    color = palette.textSecondary.copy(alpha = 0.22f),
+                    shape = shape
                 )
                 .border(
                     width = 2.dp,
-                    // KEEP this coerceIn: ringAlpha comes from an underdamped
-                    // spring (dampingRatio 0.8) which briefly overshoots past
-                    // 1f, and Color.copy(alpha = >1f) throws. Removing the
-                    // clamp brings back the onboarding theme-tap crash
-                    // ("alpha = 1.0021328 outside the range for sRGB").
-                    color = accent.copy(alpha = ringAlpha.coerceIn(0f, 1f)),
+                    // KEEP coerceIn: the value can overshoot 1f during the animation and
+                    // Color.copy(alpha = >1f) throws ("alpha outside the range for sRGB").
+                    color = palette.accent.copy(alpha = outline.coerceIn(0f, 1f)),
                     shape = shape
                 )
         ) {
-            if (previewPalette != null) {
-                // Mock UI: a call row on a card, then an accent button.
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(previewPalette.cardBackground)
-                            .padding(horizontal = 8.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            Modifier.size(22.dp).clip(CircleShape).background(previewPalette.avatarBackground),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(Modifier.size(8.dp).clip(CircleShape).background(previewPalette.accent))
-                        }
-                        Spacer(Modifier.width(7.dp))
-                        Column {
-                            Box(Modifier.width(44.dp).height(5.dp).clip(CircleShape).background(previewPalette.textPrimary.copy(alpha = .75f)))
-                            Spacer(Modifier.height(4.dp))
-                            Box(Modifier.width(28.dp).height(4.dp).clip(CircleShape).background(previewPalette.textSecondary.copy(alpha = .6f)))
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(previewPalette.callGreen),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Call, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                    }
-                }
-            }
-
             if (selected) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(22.dp)
+                        .padding(6.dp)
+                        .size(20.dp)
                         .clip(CircleShape)
-                        .background(accent),
+                        .background(palette.accent),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Filled.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(13.dp))
                 }
             }
         }
-
         Spacer(Modifier.height(7.dp))
         Text(
             name,
-            color = if (selected) labelPalette.textPrimary else labelPalette.textSecondary,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) palette.textPrimary else palette.textSecondary,
+            fontSize = 12.5.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1,
             textAlign = TextAlign.Center
         )
-        Text(
-            subtitle,
-            color = labelPalette.textSecondary,
-            fontSize = 11.sp,
-            maxLines = 1,
-            textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(2.dp))
     }
 }

@@ -811,6 +811,7 @@ class InCallActivity : ComponentActivity() {
                                 isSavedContact = isSavedContact,
                                 spamAssessment = spamAssessment,
                                 style = settings.incomingCallStyle,
+                                glass = settings.incomingCallGlass,
                                 onAccept = {
                                     dismissKeyguardForCall()
                                     current.answer(answerVideoStateFor(current))

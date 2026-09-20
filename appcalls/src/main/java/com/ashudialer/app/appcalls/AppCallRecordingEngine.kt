@@ -57,6 +57,18 @@ class AppCallRecordingEngine(private val context: Context) {
     val isActive: Boolean
         get() = scrcpyClient != null
 
+    /**
+     * True once at least ~3 seconds of audio have been captured and virtually none of it contained
+     * sound - i.e. the capture is running but delivering digital silence (blocked, muted or not
+     * routed). See [ScrcpyAudioMuxer.looksSilent] for how that is decided and why it is reliable.
+     */
+    val isCapturingSilence: Boolean
+        get() = scrcpyAudioMuxer?.looksSilent() == true
+
+    /** Audio frames written so far; 0 means nothing has arrived from the capture at all. */
+    val framesCaptured: Long
+        get() = scrcpyAudioMuxer?.framesWritten ?: 0L
+
     /** True while the pipe reader coroutine is genuinely running (used by the foreground service). */
     val isReading: Boolean
         get() = audioPipeReadJob?.isActive == true

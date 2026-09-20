@@ -64,15 +64,17 @@ data class AppSettings(
 
     val fontSizeIndex: Int = 1,
 
-    // Which visual style the full-screen incoming-call UI uses. "aurora" is
-    // the existing default (soft multi-hue glow behind frosted glass, per-
-    // theme backdrop) - kept as the default so nobody's incoming-call screen
-    // changes just from updating the app. "orbit" and "pulse" are two
-    // additional liquid-glass styles with a different mood/animation
-    // character each; see IncomingCallScreen.kt for what each one looks
-    // like. Stored as a string (not an enum) for the same DataStore-
-    // friendliness reason fontSizeIndex is an Int rather than a sealed type.
-    val incomingCallStyle: String = "aurora"
+    // Which look the full-screen incoming-call UI uses: "clean" (default), "center" or "swipe"
+    // (see IncomingCallScreen.kt). A value saved by an older build ("aurora", "orbit", "pulse",
+    // "classic", "hyper", "ios") is mapped to the nearest current look by
+    // IncomingCallStyles.normalize(), so nobody ends up with a broken screen after updating.
+    // Stored as a string (not an enum) for the same DataStore-friendliness reason fontSizeIndex is
+    // an Int rather than a sealed type.
+    val incomingCallStyle: String = "clean",
+
+    // On a dark theme, draw the incoming-call screen as dark frosted glass. Off = it stays white /
+    // light exactly like the reference designs, on every theme.
+    val incomingCallGlass: Boolean = true
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -100,6 +102,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyShowSearchBar = booleanPreferencesKey("show_search_bar")
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
     private val keyIncomingCallStyle = stringPreferencesKey("incoming_call_style")
+    private val keyIncomingCallGlass = booleanPreferencesKey("incoming_call_glass")
 
     /**
      * Ticks whenever any call-recording preference changes. SharedPreferences writes made directly
@@ -143,7 +146,8 @@ class AppSettingsRepository(private val context: Context) {
             groupRecentsByDay = prefs[keyGroupRecentsByDay] ?: false,
             showSearchBar = prefs[keyShowSearchBar] ?: true,
             fontSizeIndex = prefs[keyFontSizeIndex] ?: 1,
-            incomingCallStyle = prefs[keyIncomingCallStyle] ?: "aurora",
+            incomingCallStyle = com.ashudialer.app.ui.screens.IncomingCallStyles.normalize(prefs[keyIncomingCallStyle]),
+            incomingCallGlass = prefs[keyIncomingCallGlass] ?: true,
         )
     }
 
@@ -249,5 +253,9 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setIncomingCallStyle(style: String) {
         context.settingsDataStore.edit { it[keyIncomingCallStyle] = style }
+    }
+
+    suspend fun setIncomingCallGlass(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyIncomingCallGlass] = enabled }
     }
 }

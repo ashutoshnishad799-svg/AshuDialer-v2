@@ -38,6 +38,31 @@ class ScrcpyAudioMuxer(
     private var lastPacketWallClockNanos: Long = -1L
     private var totalIgnoredGapNanos: Long = 0L
 
+    // ---- silent-capture detection -------------------------------------------------------------
+    // A capture that is blocked, muted or simply not routed delivers DIGITAL SILENCE, and every
+    // encoder compresses digital silence to a tiny fixed-size frame. Measured with real encodes at
+    // 16 / 24 / 32 / 64 / 96 / 128 kbps: an AAC silence frame is always 13 bytes, while a frame
+    // containing any audio was never below 51 bytes; Opus: silence 3 bytes, audio never below 46.
+    // So one fixed threshold works for every bitrate and both codecs. (Packet size cannot tell quiet
+    // room noise from speech - both encode to ~90 bytes - so this only answers "was anything at all
+    // captured?", which is exactly the "WhatsApp recording is completely silent" question.)
+    private val SILENT_FRAME_MAX_BYTES = 24
+    private var mediaFramesSeen = 0L
+    private var soundFramesSeen = 0L
+
+    /** Number of audio frames written so far (config packets excluded). */
+    val framesWritten: Long get() = mediaFramesSeen
+
+    /**
+     * True when enough audio has been written to judge AND essentially none of it contained sound.
+     * "Enough" is 150 frames (about 3 seconds); "essentially none" is under 1% of frames above the
+     * silence size, which tolerates a stray click without ever calling a real recording silent.
+     */
+    fun looksSilent(): Boolean {
+        if (mediaFramesSeen < 150) return false
+        return soundFramesSeen * 100 < mediaFramesSeen
+    }
+
     /** Ordinary packet intervals are ~20ms; waiting past this means recording paused or a big frame drop happened. */
     private val GAP_THRESHOLD_NANOS = 400_000_000L
 
@@ -60,6 +85,9 @@ class ScrcpyAudioMuxer(
             AppCallsLogger.w(TAG, "writePacket(): muxer not ready - dropping frame")
             return
         }
+
+        mediaFramesSeen++
+        if (packet.data.size > SILENT_FRAME_MAX_BYTES) soundFramesSeen++
 
         val nowNanos = System.nanoTime()
 
@@ -107,6 +135,8 @@ class ScrcpyAudioMuxer(
         lastWrittenPtsUs = -1L
         lastPacketWallClockNanos = -1L
         totalIgnoredGapNanos = 0L
+        mediaFramesSeen = 0L
+        soundFramesSeen = 0L
         AppCallsLogger.d(TAG, "Muxer closed")
     }
 
