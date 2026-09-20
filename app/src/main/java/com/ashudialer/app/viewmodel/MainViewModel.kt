@@ -241,6 +241,33 @@ class MainViewModel(
     suspend fun verifyPrivateSpacePassword(attempt: String): Boolean =
         privateSpaceRepository.verifyPassword(attempt)
 
+    /** Unlock with password or PIN, returning wrong / locked details for the screen. */
+    suspend fun unlockPrivateSpace(attempt: String): com.ashudialer.app.data.PrivateSpaceRepository.UnlockResult =
+        privateSpaceRepository.unlock(attempt)
+
+    /** Milliseconds until another unlock attempt is allowed (0 = allowed now). Read on screen open and every second while locked. */
+    fun privateSpaceLockedForMs(): Long =
+        privateSpaceRepository.guard.lockedForMs(com.ashudialer.app.data.PrivateSpaceGuard.Target.UNLOCK)
+
+    fun privateSpaceRecoveryLockedForMs(): Long =
+        privateSpaceRepository.guard.lockedForMs(com.ashudialer.app.data.PrivateSpaceGuard.Target.RECOVERY)
+
+    val privateSpaceHasPin: Boolean get() = privateSpaceRepository.guard.hasPin
+
+    /**
+     * Sets the PIN. Requires the current password so a person who merely picked up an unlocked phone
+     * cannot add a PIN of their own to a Private Space they should not control. Returns an error text
+     * or null on success.
+     */
+    suspend fun setPrivateSpacePin(currentPassword: String, pin: String): String? {
+        val ok = privateSpaceRepository.verifyPassword(currentPassword)
+        if (!ok) return if (privateSpaceRepository.guard.lockedForMs(com.ashudialer.app.data.PrivateSpaceGuard.Target.UNLOCK) > 0)
+            "Too many wrong attempts. Wait a moment and try again." else "Current password is incorrect"
+        return privateSpaceRepository.guard.setPin(pin)
+    }
+
+    fun clearPrivateSpacePin() = privateSpaceRepository.guard.clearPin()
+
     suspend fun resetPrivateSpaceWithBackupCode(backupCode: String, newPassword: String): com.ashudialer.app.data.PrivateSpaceResetResult =
         privateSpaceRepository.resetWithBackupCode(backupCode, newPassword)
 

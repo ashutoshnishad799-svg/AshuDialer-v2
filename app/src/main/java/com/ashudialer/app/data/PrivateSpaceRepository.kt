@@ -27,6 +27,9 @@ class PrivateSpaceRepository(
     private val context: Context
 ) {
 
+    /** PIN storage and the attempt lockout (see PrivateSpaceGuard). Created here so no constructor has to change. */
+    val guard: PrivateSpaceGuard by lazy { PrivateSpaceGuard(context) }
+
     val isSetUp: Flow<Boolean> = privateSpaceDao.observe().map { it?.isSetUp == true }
 
     val lockedNumbers: Flow<List<LockedNumberEntity>> = lockedNumberDao.observeAll()
@@ -114,11 +117,38 @@ class PrivateSpaceRepository(
         return PrivateSpaceSetupResult.Success(backupCode)
     }
 
-    suspend fun verifyPassword(attempt: String): Boolean {
-        val config = privateSpaceDao.getSnapshot() ?: return false
-        if (!config.isSetUp) return false
-        return SecureHash.verify(attempt, config.passwordSalt, config.passwordHash)
+    /** Result of one unlock attempt, so the screen can say "wrong" and "wait 30 s" differently. */
+    sealed class UnlockResult {
+        object Success : UnlockResult()
+        data class Wrong(val attemptsLeft: Int, val lockedForMs: Long) : UnlockResult()
+        data class Locked(val remainingMs: Long) : UnlockResult()
     }
+
+    /**
+     * Unlock with the password OR the numeric PIN (whichever the person typed - a PIN is only tried when
+     * the entry is 4-6 digits and a PIN has been set). Both count toward ONE shared lockout, so
+     * splitting guesses between the two cannot double the number of tries.
+     *
+     * The check for "is it locked" comes FIRST and the hash is not even computed while locked, so a
+     * locked attempt cannot be used to learn anything or to burn CPU.
+     */
+    suspend fun unlock(attempt: String): UnlockResult {
+        val locked = guard.lockedForMs(PrivateSpaceGuard.Target.UNLOCK)
+        if (locked > 0) return UnlockResult.Locked(locked)
+
+        val config = privateSpaceDao.getSnapshot()
+        val ok = config != null && config.isSetUp && (
+            SecureHash.verify(attempt, config.passwordSalt, config.passwordHash) ||
+                (guard.hasPin && attempt.length in PrivateSpaceGuard.PIN_MIN..PrivateSpaceGuard.PIN_MAX &&
+                    attempt.all { it in '0'..'9' } && guard.verifyPin(attempt))
+            )
+        val wait = guard.recordResult(PrivateSpaceGuard.Target.UNLOCK, ok)
+        return if (ok) UnlockResult.Success
+        else UnlockResult.Wrong(attemptsLeft = guard.attemptsLeftInGroup(PrivateSpaceGuard.Target.UNLOCK), lockedForMs = wait)
+    }
+
+    /** Kept for callers that only need a yes/no and never show lockout (none in the UI any more). */
+    suspend fun verifyPassword(attempt: String): Boolean = unlock(attempt) is UnlockResult.Success
 
     /**
      * Recovery path for a forgotten password: verifying the backup code
@@ -133,8 +163,19 @@ class PrivateSpaceRepository(
             ?: return PrivateSpaceResetResult.Failure("Private Space isn't set up yet")
         if (!config.isSetUp) return PrivateSpaceResetResult.Failure("Private Space isn't set up yet")
 
+        // Recovery has its OWN lockout counter. Before this, the backup code (12 digits) could be tried without
+        // limit, which made recovery the weakest way into Private Space.
+        val locked = guard.lockedForMs(PrivateSpaceGuard.Target.RECOVERY)
+        if (locked > 0) return PrivateSpaceResetResult.Failure("Too many wrong codes. Try again in ${Lockout.format(locked)}.")
+
         val codeMatches = SecureHash.verify(backupCodeAttempt.trim(), config.backupCodeSalt, config.backupCodeHash)
-        if (!codeMatches) return PrivateSpaceResetResult.Failure("That backup code doesn't match")
+        val wait = guard.recordResult(PrivateSpaceGuard.Target.RECOVERY, codeMatches)
+        if (!codeMatches) {
+            return PrivateSpaceResetResult.Failure(
+                if (wait > 0) "Too many wrong codes. Try again in ${Lockout.format(wait)}."
+                else "That backup code doesn't match (${guard.attemptsLeftInGroup(PrivateSpaceGuard.Target.RECOVERY)} tries left before a wait)"
+            )
+        }
 
         if (newPassword.length < 4) {
             return PrivateSpaceResetResult.Failure("Password must be at least 4 characters")
@@ -154,6 +195,10 @@ class PrivateSpaceRepository(
                 backupCodeHash = newBackupCodeHash
             )
         )
+        // The person proved ownership with the backup code, so any old PIN is dropped too (they may have
+        // forgotten it as well) and the unlock lockout is cleared so they can get straight back in.
+        guard.clearPin()
+        guard.recordResult(PrivateSpaceGuard.Target.UNLOCK, true)
         return PrivateSpaceResetResult.Success
     }
 
@@ -192,6 +237,7 @@ class PrivateSpaceRepository(
      * password change.
      */
     suspend fun resetEverything() {
+        guard.resetAll()
         privateSpaceDao.clear()
         lockedNumberDao.getAllSnapshot().forEach { lockedNumberDao.delete(it) }
     }

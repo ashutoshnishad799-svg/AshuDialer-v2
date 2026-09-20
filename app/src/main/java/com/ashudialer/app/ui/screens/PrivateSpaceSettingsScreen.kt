@@ -3,6 +3,7 @@ package com.ashudialer.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -53,6 +54,9 @@ fun PrivateSpaceSettingsScreen(
     onBack: () -> Unit,
     onChangePassword: suspend (current: String, new: String) -> com.ashudialer.app.data.PrivateSpaceResetResult,
     onWipeEverything: () -> Unit,
+    hasPin: Boolean = false,
+    onSetPin: suspend (currentPassword: String, pin: String) -> String? = { _, _ -> "PIN is not available" },
+    onClearPin: () -> Unit = {},
     hideLockedCallHistoryFromRecents: Boolean = false,
     onSetHideLockedCallHistoryFromRecents: (Boolean) -> Unit = {},
     hideLockedContactsFromContactsList: Boolean = false,
@@ -74,8 +78,20 @@ fun PrivateSpaceSettingsScreen(
             Text("Private Space settings", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
         }
 
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 12.dp)
+        ) {
             ChangePasswordSection(onChangePassword = onChangePassword, palette = palette)
+
+            Spacer(Modifier.height(32.dp))
+            androidx.compose.material3.HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+            Spacer(Modifier.height(24.dp))
+
+            PinSection(hasPin = hasPin, onSetPin = onSetPin, onClearPin = onClearPin, palette = palette)
 
             Spacer(Modifier.height(32.dp))
             androidx.compose.material3.HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
@@ -242,6 +258,133 @@ private fun ChangePasswordSection(
         Icon(Icons.Filled.Password, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(8.dp))
         Text(if (isSubmitting) "Updating…" else "Update password", fontWeight = FontWeight.SemiBold)
+    }
+}
+
+/**
+ * Optional PIN. The password always keeps working; a PIN is a faster way in, entered on a keypad.
+ * Setting one needs the current password (so someone holding an already-unlocked phone cannot add a
+ * PIN of their own), and it counts toward the same lockout as the password.
+ */
+@Composable
+private fun PinSection(
+    hasPin: Boolean,
+    onSetPin: suspend (currentPassword: String, pin: String) -> String?,
+    onClearPin: () -> Unit,
+    palette: DialerPalette
+) {
+    val scope = rememberCoroutineScope()
+    var pinIsSet by remember(hasPin) { mutableStateOf(hasPin) }
+    var currentPassword by remember { mutableStateOf("") }
+    var pin by remember { mutableStateOf("") }
+    var confirmPin by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+
+    Text("PIN unlock", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = palette.textPrimary)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        if (pinIsSet) "A PIN is set. You can still unlock with your password."
+        else "Add a 4 to 6 digit PIN to open Private Space from a keypad. Your password keeps working.",
+        fontSize = 12.5.sp, color = palette.textSecondary
+    )
+    Spacer(Modifier.height(12.dp))
+
+    if (!editing) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = { editing = true; message = null; errorText = null },
+                modifier = Modifier.weight(1f).height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+            ) { Text(if (pinIsSet) "Change PIN" else "Set a PIN", fontWeight = FontWeight.SemiBold) }
+            if (pinIsSet) {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { onClearPin(); pinIsSet = false; message = "PIN removed" },
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) { Text("Remove PIN") }
+            }
+        }
+        if (message != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(message!!, fontSize = 12.5.sp, color = palette.accent, fontWeight = FontWeight.Medium)
+        }
+        return
+    }
+
+    SettingsField(value = currentPassword, onValueChange = { currentPassword = it; errorText = null }, placeholder = "Current password", palette = palette)
+    Spacer(Modifier.height(10.dp))
+    NumericField(value = pin, onValueChange = { pin = it.filter(Char::isDigit).take(6); errorText = null }, placeholder = "New PIN (4 to 6 digits)", palette = palette)
+    Spacer(Modifier.height(10.dp))
+    NumericField(value = confirmPin, onValueChange = { confirmPin = it.filter(Char::isDigit).take(6); errorText = null }, placeholder = "Confirm PIN", palette = palette)
+    if (errorText != null) {
+        Spacer(Modifier.height(8.dp))
+        Text(errorText!!, fontSize = 12.5.sp, color = palette.danger)
+    }
+    Spacer(Modifier.height(14.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        androidx.compose.material3.OutlinedButton(
+            onClick = { editing = false; currentPassword = ""; pin = ""; confirmPin = ""; errorText = null },
+            modifier = Modifier.weight(1f).height(46.dp),
+            shape = RoundedCornerShape(14.dp)
+        ) { Text("Cancel") }
+        Button(
+            onClick = {
+                when {
+                    currentPassword.isEmpty() -> errorText = "Enter your current password"
+                    pin != confirmPin -> errorText = "The two PINs don't match"
+                    else -> {
+                        isSubmitting = true
+                        scope.launch {
+                            val error = onSetPin(currentPassword, pin)
+                            isSubmitting = false
+                            if (error != null) errorText = error
+                            else {
+                                pinIsSet = true; editing = false; message = "PIN saved"
+                                currentPassword = ""; pin = ""; confirmPin = ""
+                            }
+                        }
+                    }
+                }
+            },
+            enabled = !isSubmitting,
+            modifier = Modifier.weight(1f).height(46.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+        ) { Text(if (isSubmitting) "Saving…" else "Save PIN", fontWeight = FontWeight.SemiBold) }
+    }
+}
+
+/** Numeric, masked field for PIN entry (the general SettingsField always asks for a text keyboard). */
+@Composable
+private fun NumericField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    palette: DialerPalette
+) {
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(palette, 14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        if (value.isEmpty()) {
+            Text(placeholder, color = palette.textSecondary, fontSize = 14.5.sp)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = TextStyle(color = palette.textPrimary, fontSize = 14.5.sp),
+            cursorBrush = SolidColor(palette.accent),
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

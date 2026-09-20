@@ -40,7 +40,10 @@ import kotlinx.coroutines.launch
 fun LockedNumberPinDialog(
     onDismiss: () -> Unit,
     onVerify: suspend (String) -> Boolean,
-    onVerified: () -> Unit
+    onVerified: () -> Unit,
+    // Milliseconds until another attempt is allowed (0 = now). Read AFTER a failed attempt so the message can
+    // say "wait 30 s" instead of a plain "Incorrect password" when the shared Private Space lockout kicked in.
+    lockedForMs: () -> Long = { 0L }
 ) {
     val palette = LocalDialerPalette.current
     val scope = rememberCoroutineScope()
@@ -50,6 +53,11 @@ fun LockedNumberPinDialog(
 
     fun submit() {
         if (attempt.isEmpty() || isChecking) return
+        val waitNow = lockedForMs()
+        if (waitNow > 0) {
+            errorText = "Too many wrong attempts. Try again in ${com.ashudialer.app.data.Lockout.format(waitNow)}."
+            return
+        }
         isChecking = true
         scope.launch {
             val ok = onVerify(attempt)
@@ -57,7 +65,9 @@ fun LockedNumberPinDialog(
             if (ok) {
                 onVerified()
             } else {
-                errorText = "Incorrect password"
+                val wait = lockedForMs()
+                errorText = if (wait > 0) "Too many wrong attempts. Try again in ${com.ashudialer.app.data.Lockout.format(wait)}."
+                else "Incorrect password"
                 attempt = ""
             }
         }

@@ -380,7 +380,7 @@ private fun RecordingRow(
  * isPlaying for why that split used to let the two icons disagree.
  */
 @Composable
-private fun InlineAudioPlayer(
+internal fun InlineAudioPlayer(
     file: File,
     palette: com.ashudialer.app.ui.theme.DialerPalette,
     isPlaying: Boolean,
@@ -438,7 +438,12 @@ private fun InlineAudioPlayer(
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                val recordingUri = resolveRecordingUri(context, file)
+                // A recording in the app's own private storage (Private Space) is played straight from its
+                // path. It must NOT go through the MediaStore lookup: that matches by file NAME, so if a
+                // same-named public copy still existed (for example while a move is in progress) it would
+                // open the PUBLIC copy instead of the private one.
+                val isPrivateFile = file.absolutePath.startsWith(context.filesDir.absolutePath)
+                val recordingUri = if (isPrivateFile) null else resolveRecordingUri(context, file)
                 if (recordingUri != null) {
                     setDataSource(context, recordingUri)
                 } else {
@@ -580,13 +585,17 @@ private fun resolveRecordingUri(context: Context, file: File): Uri? {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
         val projection = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.DATA)
+        // The recording may sit directly in "Music/Ashu Dialer/" (saved by older versions) or in a
+        // per-source sub-folder such as "Music/Ashu Dialer/WhatsApp/" (current versions), so the folder
+        // is matched by PREFIX. An exact match on "Music/Ashu Dialer/" would find none of the new
+        // recordings, and tapping play would silently do nothing.
         val selection = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} = ?"
+            "${MediaStore.Audio.Media.DISPLAY_NAME} = ? AND ${MediaStore.Audio.Media.RELATIVE_PATH} LIKE ?"
         } else {
             "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
         }
         val args = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            arrayOf(file.name, "Music/Ashu Dialer/")
+            arrayOf(file.name, "Music/Ashu Dialer/%")
         } else arrayOf(file.name)
         context.contentResolver.query(collection, projection, selection, args, null)?.use { cursor ->
             if (cursor.moveToFirst()) {

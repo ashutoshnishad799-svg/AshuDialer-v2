@@ -20,7 +20,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,7 +114,7 @@ fun IncomingCallStylePickerScreen(
 
             // Which look to preview. A light theme only ever has the light look, so the switch is
             // shown only where there is a choice (dark theme).
-            var previewDark by remember { androidx.compose.runtime.mutableStateOf(palette.isDark) }
+            var previewDark by remember { mutableStateOf(palette.isDark) }
             PhoneFramePreview(styleId = current, dark = previewDark && palette.isDark, glass = glassEnabled)
 
             if (palette.isDark) {

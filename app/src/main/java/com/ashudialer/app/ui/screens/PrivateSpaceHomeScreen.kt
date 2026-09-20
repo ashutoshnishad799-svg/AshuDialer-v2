@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhoneLocked
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -65,7 +66,6 @@ fun PrivateSpaceHomeScreen(
     onCall: (String) -> Unit,
     onAddNumber: (phoneNumber: String, label: String) -> Unit,
     onRemoveNumber: (String) -> Unit,
-    onPlayRecording: (File) -> Unit,
     onShareRecording: (File) -> Unit,
     onDeleteRecording: (File) -> Unit,
     onMoveRecordingOut: (File) -> Unit,
@@ -123,7 +123,6 @@ fun PrivateSpaceHomeScreen(
             PrivateSpaceTab.RECORDINGS -> if (showRecordings) RecordingsTab(
                 recordings = recordings,
                 palette = palette,
-                onPlay = onPlayRecording,
                 onShare = onShareRecording,
                 onDelete = onDeleteRecording,
                 onMoveOut = onMoveRecordingOut
@@ -297,7 +296,6 @@ private fun HistoryRow(call: RecentCall, palette: DialerPalette) {
 private fun RecordingsTab(
     recordings: List<File>,
     palette: DialerPalette,
-    onPlay: (File) -> Unit,
     onShare: (File) -> Unit,
     onDelete: (File) -> Unit,
     onMoveOut: (File) -> Unit
@@ -312,9 +310,46 @@ private fun RecordingsTab(
         return
     }
 
+    // Only one recording is open (and playing) at a time, so two never play over each other. A file that
+    // disappears from the list (deleted, or moved out) closes itself: expandedPath simply stops matching.
+    var expandedPath by remember { mutableStateOf<String?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var shareCandidate by remember { mutableStateOf<File?>(null) }
+
+    shareCandidate?.let { file ->
+        // Sharing hands the audio to another app, which is exactly what Private Space exists to prevent,
+        // so it is never one tap away.
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { shareCandidate = null },
+            title = { Text("Share this recording?") },
+            text = { Text("It will leave Private Space and go to the app you pick. That app may keep a copy.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { shareCandidate = null; onShare(file) }) { Text("Share") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { shareCandidate = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         items(recordings, key = { it.absolutePath }) { file ->
-            PrivateRecordingRow(file = file, palette = palette, onPlay = { onPlay(file) }, onShare = { onShare(file) }, onDelete = { onDelete(file) }, onMoveOut = { onMoveOut(file) })
+            val expanded = expandedPath == file.absolutePath
+            PrivateRecordingRow(
+                file = file,
+                palette = palette,
+                expanded = expanded,
+                isPlaying = expanded && isPlaying,
+                onIsPlayingChange = { isPlaying = it },
+                // Tapping opens the built-in player right here. It never starts another app.
+                onToggle = {
+                    if (expanded) { expandedPath = null; isPlaying = false }
+                    else { expandedPath = file.absolutePath; isPlaying = false }
+                },
+                onShare = { shareCandidate = file },
+                onDelete = { if (expanded) { expandedPath = null; isPlaying = false }; onDelete(file) },
+                onMoveOut = { if (expanded) { expandedPath = null; isPlaying = false }; onMoveOut(file) }
+            )
             HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
         }
         item { Spacer(Modifier.height(20.dp)) }
@@ -325,52 +360,69 @@ private fun RecordingsTab(
 private fun PrivateRecordingRow(
     file: File,
     palette: DialerPalette,
-    onPlay: () -> Unit,
+    expanded: Boolean,
+    isPlaying: Boolean,
+    onIsPlayingChange: (Boolean) -> Unit,
+    onToggle: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
     onMoveOut: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val displayName = remember(file.name) {
-        // Recording filenames look like "<label>_<yyyyMMdd_HHmmss>.m4a" (see
-        // CallRecorder.start) - strip the extension and timestamp suffix for
-        // a cleaner row title, same idea as RecordingsScreen's own label
-        // parsing, kept intentionally simple here rather than importing that
-        // private parser across files.
+        // Recording filenames look like "<label>_<yyyyMMdd_HHmmss>.m4a" (see CallRecorder.start) - strip the
+        // extension and timestamp suffix for a cleaner row title.
         file.nameWithoutExtension.substringBeforeLast('_').ifBlank { file.nameWithoutExtension }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier.size(38.dp).clip(CircleShape).background(palette.accentSoft),
-            contentAlignment = Alignment.Center
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = palette.accent, modifier = Modifier.size(18.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(displayName, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary, modifier = Modifier.weight(1f), maxLines = 1)
-        IconButton(onClick = onShare) {
-            Icon(Icons.Filled.Share, contentDescription = "Share", tint = palette.textSecondary, modifier = Modifier.size(18.dp))
-        }
-        Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = palette.textSecondary, modifier = Modifier.size(19.dp))
-            }
-            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                DropdownMenuItem(
-                    text = { Text("Move out of Private Space") },
-                    leadingIcon = { Icon(Icons.Filled.LockOpen, contentDescription = null, tint = palette.textPrimary) },
-                    onClick = { menuExpanded = false; onMoveOut() }
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete", color = palette.danger) },
-                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = palette.danger) },
-                    onClick = { menuExpanded = false; onDelete() }
+            Box(
+                modifier = Modifier.size(38.dp).clip(CircleShape).background(palette.accentSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    if (expanded && isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (expanded) "Close player" else "Play",
+                    tint = palette.accent, modifier = Modifier.size(18.dp)
                 )
             }
+            Spacer(Modifier.width(12.dp))
+            Text(displayName, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary, modifier = Modifier.weight(1f), maxLines = 1)
+            IconButton(onClick = onShare) {
+                Icon(Icons.Filled.Share, contentDescription = "Share", tint = palette.textSecondary, modifier = Modifier.size(18.dp))
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = palette.textSecondary, modifier = Modifier.size(19.dp))
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Move out of Private Space") },
+                        leadingIcon = { Icon(Icons.Filled.LockOpen, contentDescription = null, tint = palette.textPrimary) },
+                        onClick = { menuExpanded = false; onMoveOut() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = palette.danger) },
+                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = palette.danger) },
+                        onClick = { menuExpanded = false; onDelete() }
+                    )
+                }
+            }
+        }
+        if (expanded) {
+            // The same built-in player the Recordings screen uses (seek bar, play / pause, duration).
+            // The file plays straight from Private Space's own folder and is never handed to another app.
+            InlineAudioPlayer(
+                file = file,
+                palette = palette,
+                isPlaying = isPlaying,
+                onIsPlayingChange = onIsPlayingChange
+            )
+            Spacer(Modifier.height(6.dp))
         }
     }
 }

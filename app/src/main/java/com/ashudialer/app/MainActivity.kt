@@ -1285,6 +1285,15 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.PRIVATE_SPACE -> {
+                                            // While Private Space is on screen the window is marked secure: screenshots and
+                                            // screen recording show a black frame, and the recent-apps thumbnail is blank,
+                                            // so locked numbers and private recordings cannot leak through either. The flag
+                                            // is removed the moment this branch leaves composition (going back, or opening
+                                            // any other screen), so the rest of the app is unaffected.
+                                            androidx.compose.runtime.DisposableEffect(Unit) {
+                                                this@MainActivity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                                                onDispose { this@MainActivity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+                                            }
                                             val isSetUp by viewModel.privateSpaceIsSetUp.collectAsState()
                                             // On first entering PRIVATE_SPACE (privateSpaceStep is
                                             // still CHECKING), route to SETUP or UNLOCK based on
@@ -1317,7 +1326,9 @@ class MainActivity : ComponentActivity() {
                                                 )
                                                 PrivateSpaceStep.UNLOCK -> PrivateSpaceUnlockScreen(
                                                     onBack = { overlay = OverlayScreen.NONE },
-                                                    onVerifyPassword = { attempt -> viewModel.verifyPrivateSpacePassword(attempt) },
+                                                    onUnlock = { attempt -> viewModel.unlockPrivateSpace(attempt) },
+                                                    hasPin = viewModel.privateSpaceHasPin,
+                                                    lockedForMs = { viewModel.privateSpaceLockedForMs() },
                                                     onResetWithBackupCode = { code, newPassword -> viewModel.resetPrivateSpaceWithBackupCode(code, newPassword) },
                                                     onUnlocked = { privateSpaceStep = PrivateSpaceStep.HOME },
                                                     modifier = Modifier.fillMaxSize()
@@ -1358,7 +1369,6 @@ class MainActivity : ComponentActivity() {
                                                         },
                                                         onAddNumber = { number, label -> viewModel.lockNumber(number, label) },
                                                         onRemoveNumber = { number -> viewModel.unlockNumber(number) },
-                                                        onPlayRecording = { file -> playRecording(file) },
                                                         onShareRecording = { file -> shareRecording(file) },
                                                         onDeleteRecording = { file -> deletePrivateSpaceRecording(file) },
                                                         onMoveRecordingOut = { file -> moveRecordingOutOfPrivateSpace(file) },
@@ -1370,6 +1380,9 @@ class MainActivity : ComponentActivity() {
                                                 PrivateSpaceStep.SETTINGS -> PrivateSpaceSettingsScreen(
                                                     onBack = { privateSpaceStep = PrivateSpaceStep.HOME },
                                                     onChangePassword = { current, new -> viewModel.changePrivateSpacePassword(current, new) },
+                                                    hasPin = viewModel.privateSpaceHasPin,
+                                                    onSetPin = { current, pin -> viewModel.setPrivateSpacePin(current, pin) },
+                                                    onClearPin = { viewModel.clearPrivateSpacePin() },
                                                     onWipeEverything = {
                                                         viewModel.wipePrivateSpace(context)
                                                         // A wipe resets isSetUp to false, so the next
@@ -2012,6 +2025,7 @@ class MainActivity : ComponentActivity() {
                         LockedNumberPinDialog(
                             onDismiss = { pendingLockedCall = null },
                             onVerify = { attempt -> viewModel.verifyPrivateSpacePassword(attempt) },
+                            lockedForMs = { viewModel.privateSpaceLockedForMs() },
                             onVerified = {
                                 pendingLockedCall = null
                                 placeCallDirect(lockedNumber)
