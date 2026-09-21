@@ -116,6 +116,25 @@ jobs:
             echo "⚠️  Could not read the keystore to print fingerprints - check ASHU_RELEASE_KEY_ALIAS/ASHU_RELEASE_STORE_PASSWORD secrets are correct."
           echo "================================================================"
 
+      # Reads the SHA-256 of the release certificate and exports it, so the build can embed it. The app compares this
+      # with the certificate it is really signed with at start-up; a copy that was modified and re-signed with anyone
+      # else's key no longer matches. If the fingerprint cannot be read the value stays empty and the check is skipped
+      # (the build never fails because of this step).
+      - name: Read release certificate SHA-256
+        env:
+          ASHU_RELEASE_STORE_PASSWORD: ${{ secrets.ASHU_RELEASE_STORE_PASSWORD }}
+          ASHU_RELEASE_KEY_ALIAS: ${{ secrets.ASHU_RELEASE_KEY_ALIAS }}
+        run: |
+          FP=$(keytool -list -v -keystore app/ashuphone-release.keystore -alias "$ASHU_RELEASE_KEY_ALIAS" \
+                 -storepass "$ASHU_RELEASE_STORE_PASSWORD" 2>/dev/null \
+               | grep -m1 "SHA256:" | sed 's/.*SHA256: *//' | tr -d ':' | tr 'A-F' 'a-f' || true)
+          if [ "${#FP}" -eq 64 ]; then
+            echo "ASHU_CERT_SHA256=$FP" >> "$GITHUB_ENV"
+            echo "Embedding certificate fingerprint ${FP:0:8}... into the build"
+          else
+            echo "::warning::Could not read the certificate fingerprint; the tamper check will be skipped in this build"
+          fi
+
       # Build + sign Release APK in one Gradle pass using the restored
       # keystore. Gradle's own signing pipeline handles zipalign + V2/V3
       # signing internally, so no separate apksigner/zipalign step is
@@ -131,7 +150,8 @@ jobs:
             -PASHU_RELEASE_STORE_PASSWORD="$ASHU_RELEASE_STORE_PASSWORD" \
             -PASHU_RELEASE_KEY_ALIAS="$ASHU_RELEASE_KEY_ALIAS" \
             -PASHU_RELEASE_KEY_PASSWORD="$ASHU_RELEASE_KEY_PASSWORD" \
-            -PASHU_UPDATE_REPO="$GITHUB_REPOSITORY"
+            -PASHU_UPDATE_REPO="$GITHUB_REPOSITORY" \
+            -PASHU_CERT_SHA256="${ASHU_CERT_SHA256:-}"
 
       # Find the built APK wherever AGP put it, so a layout change can never break this step.
       - name: Stage APK

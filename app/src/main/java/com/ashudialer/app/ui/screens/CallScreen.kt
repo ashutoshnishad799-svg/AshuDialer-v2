@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -17,10 +18,13 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -127,6 +131,10 @@ fun CallScreen(
     var state by remember { mutableStateOf(CallUiState.CONNECTING) }
     var showKeypad by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
+    // Digits the person has typed on the in-call keypad (sent as tones). Shown above the keys so they can
+    // see what they entered, like a normal dialer; cleared when the keypad is closed.
+    var dialedDigits by remember { mutableStateOf("") }
+    LaunchedEffect(showKeypad) { if (!showKeypad) dialedDigits = "" }
 
     // THE FIX for "call duration resets to 0 when returning to the app
     // after switching to another task": seconds used to be a plain
@@ -272,15 +280,21 @@ fun CallScreen(
             // opens the sheet, not an incidental brush of the screen.
             .pointerInput(showMore) {
                 if (showMore) return@pointerInput
+                // ONLY a long, deliberate swipe up opens More: the finger has to travel 30% of the screen
+                // height (about 270dp on a normal phone). The old 180 PIXELS was ~65dp, so an ordinary tap that
+                // drifted a little, or a short flick, opened it by accident. Moving back down takes progress
+                // away again, so a wobbling finger cannot add up to a trigger either.
+                val threshold = size.height * 0.30f
                 detectVerticalDragGestures(
                     onDragStart = { accumulatedDragUp = 0f },
+                    onDragEnd = { accumulatedDragUp = 0f },
+                    onDragCancel = { accumulatedDragUp = 0f },
                     onVerticalDrag = { change, dragAmount ->
-                        if (dragAmount < 0) {
-                            accumulatedDragUp -= dragAmount
-                            if (accumulatedDragUp > 180f) {
-                                showMore = true
-                                showKeypad = false
-                            }
+                        accumulatedDragUp = (accumulatedDragUp - dragAmount).coerceAtLeast(0f)
+                        if (accumulatedDragUp > threshold) {
+                            accumulatedDragUp = 0f
+                            showMore = true
+                            showKeypad = false
                         }
                         change.consume()
                     }
@@ -410,52 +424,58 @@ fun CallScreen(
                 }
             }
 
-            Spacer(Modifier.weight(1f))
-
-            // The keypad renders above the control row (like stock dialer)
-            // instead of replacing it - Keypad/Mute/Audio/More must always
-            // stay reachable so the person can still mute, switch audio
-            // route, or hang up while entering DTMF digits (e.g. navigating
-            // an IVR menu, which is exactly when someone is most likely to
-            // want to check the call is still connected or end it).
-            AnimatedVisibility(
-                visible = showKeypad,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it }
+            // ONE fixed slot for the keypad and the More sheet.
+            //
+            // They used to be two separate AnimatedVisibility blocks stacked in this Column. A block that is
+            // animating OUT keeps its full height until its animation ends, so switching keypad <-> More made
+            // the Column briefly taller than the screen: Keypad / Mute / Audio / More and the End button were
+            // shoved off the bottom, and the panel was pushed up the screen and then slid back down (the
+            // "screen jumps up and down" bug, and "press the keypad after swiping up and the keypad shoots
+            // up"). Now this slot's size is fixed by weight(1f) and the panels fade / slide INSIDE it, so
+            // nothing else can move. If a panel is taller than the slot (a short phone, or a huge system font)
+            // it scrolls inside the slot instead of overflowing.
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentAlignment = Alignment.BottomCenter
             ) {
-                InCallKeypad(
-                    palette = palette,
-                    onDigit = onDtmfDigit,
-                    modifier = Modifier
-                )
-            }
-
-            AnimatedVisibility(
-                visible = showMore,
-                enter = fadeIn() + slideInVertically { it },
-                exit = fadeOut() + slideOutVertically { it }
-            ) {
-                MoreActionsSheet(
-                    palette = palette,
-                    canMerge = canMerge,
-                    canSwap = canSwap,
-                    isOnHold = isOnHold,
-                    recordingAvailable = recordingAvailable,
-                    isRecording = isRecording,
-                    autoRecordActive = autoRecordActive,
-                    availableAudioRoutes = availableAudioRoutes,
-                    currentAudioRoute = currentAudioRoute,
-                    onToggleRecording = onToggleRecording,
-                    onSelectAudioRoute = onSelectAudioRoute,
-                    onMerge = onMerge,
-                    onSwap = onSwap,
-                    onToggleHold = onToggleHold,
-                    onAddCall = onAddCall,
-                    onOpenNote = onOpenNote,
-                    onOpenVideoCall = onOpenVideoCall,
-                    onUpgradeToNativeVideo = onUpgradeToNativeVideo,
-                    onDismiss = { showMore = false }
-                )
+                val slotMaxHeight = maxHeight
+                PanelSlot(visible = showKeypad) {
+                    Box(Modifier.heightIn(max = slotMaxHeight).verticalScroll(rememberScrollState())) {
+                        InCallKeypad(
+                            palette = palette,
+                            digits = dialedDigits,
+                            onDigit = { d ->
+                                if (dialedDigits.length < 40) dialedDigits += d
+                                onDtmfDigit(d)
+                            }
+                        )
+                    }
+                }
+                PanelSlot(visible = showMore) {
+                    Box(Modifier.heightIn(max = slotMaxHeight).verticalScroll(rememberScrollState())) {
+                        MoreActionsSheet(
+                            palette = palette,
+                            canMerge = canMerge,
+                            canSwap = canSwap,
+                            isOnHold = isOnHold,
+                            recordingAvailable = recordingAvailable,
+                            isRecording = isRecording,
+                            autoRecordActive = autoRecordActive,
+                            availableAudioRoutes = availableAudioRoutes,
+                            currentAudioRoute = currentAudioRoute,
+                            onToggleRecording = onToggleRecording,
+                            onSelectAudioRoute = onSelectAudioRoute,
+                            onMerge = onMerge,
+                            onSwap = onSwap,
+                            onToggleHold = onToggleHold,
+                            onAddCall = onAddCall,
+                            onOpenNote = onOpenNote,
+                            onOpenVideoCall = onOpenVideoCall,
+                            onUpgradeToNativeVideo = onUpgradeToNativeVideo,
+                            onDismiss = { showMore = false }
+                        )
+                    }
+                }
             }
 
             Row(
@@ -771,9 +791,24 @@ private fun RecordingWaveformBar(seconds: Int, mode: RecordingMode?, looksSilent
     }
 }
 
+/** Fades and slides one panel in or out INSIDE the fixed slot; never changes the layout around it. */
+@Composable
+private fun PanelSlot(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(180)) +
+            slideInVertically(animationSpec = tween(240, easing = FastOutSlowInEasing)) { it / 6 },
+        exit = fadeOut(animationSpec = tween(110)) +
+            slideOutVertically(animationSpec = tween(150)) { it / 6 }
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun InCallKeypad(
     palette: DialerPalette,
+    digits: String,
     onDigit: (Char) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -783,29 +818,69 @@ private fun InCallKeypad(
             .fillMaxWidth()
             .padding(horizontal = 32.dp, vertical = 8.dp)
             .glassCard(palette, 20.dp)
-            .padding(vertical = 14.dp),
+            .padding(top = 10.dp, bottom = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                row.forEach { digit ->
-                    val digitInteractionSource = remember { MutableInteractionSource() }
-                    val digitPressed by digitInteractionSource.collectIsPressedAsState()
-                    val digitScale by animateFloatAsState(
-                        targetValue = if (digitPressed) 0.85f else 1f,
-                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-                        label = "digitScale"
-                    )
-                    IconButton(
-                        onClick = { onDigit(digit) },
-                        interactionSource = digitInteractionSource,
-                        modifier = Modifier.size(58.dp).graphicsLayer { scaleX = digitScale; scaleY = digitScale }
-                    ) {
-                        Text(digit.toString(), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Light)
-                    }
-                }
+        // What has been typed so far. The height is fixed, so the panel never changes size as digits are added.
+        Box(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+            if (digits.isEmpty()) {
+                Text("Tap keys to send tones", fontSize = 13.sp, color = palette.textSecondary.copy(alpha = 0.7f))
+            } else {
+                Text(
+                    digits.takeLast(20),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 2.sp,
+                    color = palette.textPrimary,
+                    maxLines = 1
+                )
             }
         }
+        rows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                row.forEach { digit -> KeypadDigit(digit, palette, onDigit) }
+            }
+        }
+    }
+}
+
+/**
+ * One in-call keypad key. The digit is sent the moment the finger goes DOWN (not when it lifts), so the
+ * tone starts at once like a real keypad, and the key answers with a quick shrink plus a soft glass
+ * highlight instead of the old slow, bouncy spring.
+ */
+@Composable
+private fun KeypadDigit(digit: Char, palette: DialerPalette, onDigit: (Char) -> Unit) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.90f else 1f,
+        animationSpec = tween(if (pressed) 60 else 140, easing = FastOutSlowInEasing),
+        label = "keypadDigitScale"
+    )
+    val glow by animateFloatAsState(
+        targetValue = if (pressed) 0.22f else 0f,
+        animationSpec = tween(if (pressed) 40 else 220),
+        label = "keypadDigitGlow"
+    )
+    Box(
+        modifier = Modifier
+            .size(58.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(palette.accent.copy(alpha = glow))
+            .pointerInput(digit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        onDigit(digit)
+                        tryAwaitRelease()
+                        pressed = false
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(digit.toString(), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Light)
     }
 }
 

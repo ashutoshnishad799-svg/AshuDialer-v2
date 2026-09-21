@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -417,7 +418,14 @@ private fun PersonalizePage(
             items(AllPalettes, key = { it.id }) { swatch ->
                 OnboardingThemeTile(
                     name = swatch.displayName,
-                    background = swatch.background,
+                    // A dark theme's real background is nearly pure black, so Midnight, Violet and Dark Mode looked like
+                    // the same black rectangle. Their tile runs from that dark base into a tint of their own accent
+                    // colour, so each one is recognisable while still reading as dark.
+                    background = if (swatch.isDark) {
+                        Brush.linearGradient(
+                            listOf(swatch.swatchStart, lerp(swatch.swatchStart, swatch.swatchEnd, 0.6f))
+                        )
+                    } else swatch.background,
                     selected = swatch.id == currentThemeId,
                     onClick = { onThemeSelected(swatch.id) }
                 )

@@ -10,3 +10,11 @@
 -keep class com.google.firebase.** { *; }
 -dontwarn com.google.firebase.**
 
+
+# Release builds drop verbose / debug / info logging (warnings and errors stay). Some of these messages name callers
+# or notification titles, which should not sit in logcat on someone's phone.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

@@ -21,6 +21,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +103,12 @@ fun SettingsScreen(
                 .padding(horizontal = 20.dp)
         ) {
             item { Spacer(Modifier.height(4.dp)) }
+
+            item {
+                SectionLabel("Incoming calls", palette)
+                SettingsCard(palette) { LockScreenCallsRow(palette) }
+                Spacer(Modifier.height(20.dp))
+            }
 
             if (onOpenMiuiAutostartSettings != null) {
                 item {
@@ -417,4 +428,38 @@ internal fun ToggleRow(
         }
         Switch(checked = checked, onCheckedChange = onToggle, enabled = enabled)
     }
+}
+
+
+/**
+ * Shortcut to the "calls on the lock screen" settings. It lists what is still switched off (screen does not
+ * wake for a call, the call shows as a small notification, answering asks for the PIN) and opens the right
+ * page; the list refreshes when the person comes back from that page.
+ */
+@Composable
+private fun LockScreenCallsRow(palette: DialerPalette) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var issues by remember {
+        mutableStateOf(com.ashudialer.app.telecom.OemPermissionHelper.lockScreenIssues(context))
+    }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                issues = com.ashudialer.app.telecom.OemPermissionHelper.lockScreenIssues(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    NavRow(
+        icon = Icons.Filled.Phone,
+        title = "Calls on the lock screen",
+        subtitle = if (issues.isEmpty()) "All set. Calls light up the screen and open full screen"
+        else "Turn on: " + issues.joinToString(", ") { it.title },
+        palette = palette,
+        onClick = {
+            com.ashudialer.app.telecom.OemPermissionHelper.openLockScreenIssue(context, issues.firstOrNull()?.id ?: "fsi")
+        }
+    )
 }

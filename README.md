@@ -41,6 +41,14 @@ features were switched on. Never phone numbers, contacts, names or recordings. A
 installs are visible in the Firebase console. Download counts are per release asset on the Releases
 page.
 
+## Security
+
+Release builds carry the fingerprint of the official signing certificate (CI reads it from the keystore). A copy that was
+modified and re-signed with another key opens a "not the official app" screen instead of the app; calls keep working.
+Debug and local builds skip the check. This raises the bar, it cannot make modification impossible: keep the signing key
+secret and share only the Releases page. Auto Backup is off, Private Space blocks screenshots, and debug/verbose logging
+is stripped from release builds.
+
 ## Credits
 
 Call-recording engine adapted from [ShizuCallRecorder](https://github.com/kitsumed/ShizuCallRecorder)

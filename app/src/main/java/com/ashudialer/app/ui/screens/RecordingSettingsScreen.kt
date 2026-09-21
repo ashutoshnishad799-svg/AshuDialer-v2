@@ -7,6 +7,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,6 +64,8 @@ fun RecordingSettingsScreen(
     var bitRate by remember { mutableStateOf(prefs.audioBitRate) }
     var storage by remember { mutableStateOf(prefs.storageMode) }
     var template by remember { mutableStateOf(prefs.fileNameTemplate) }
+    // Non-null while the file-name editor dialog is open (holds the text being edited).
+    var editingTemplate by remember { mutableStateOf<String?>(null) }
     var showNotif by remember { mutableStateOf(prefs.showRecordingNotification) }
     var postNotif by remember { mutableStateOf(prefs.postRecordingActionsNotification) }
     var vibrate by remember { mutableStateOf(prefs.vibrateOnStartStop) }
@@ -82,6 +87,43 @@ fun RecordingSettingsScreen(
             IconButton(onClick = onOpenGuide) { Icon(Icons.Filled.HelpOutline, "Guide", tint = palette.accent) }
         }
 
+        editingTemplate?.let { draft ->
+            AlertDialog(
+                onDismissRequest = { editingTemplate = null },
+                title = { Text("File name") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { editingTemplate = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Pieces you can use: {contact_name} {phone_number} {date} {direction} {app_source} {cross_country}",
+                            fontSize = 11.5.sp, color = palette.textSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text("Example: " + fileNamePreview(draft), fontSize = 12.sp, color = palette.textPrimary)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val saved = draft.ifBlank { RecordingPrefs.DEFAULT_FILE_NAME_TEMPLATE }
+                        template = saved
+                        prefs.fileNameTemplate = saved
+                        editingTemplate = null
+                    }) { Text("Save") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { editingTemplate = RecordingPrefs.DEFAULT_FILE_NAME_TEMPLATE }) { Text("Reset") }
+                        TextButton(onClick = { editingTemplate = null }) { Text("Cancel") }
+                    }
+                }
+            )
+        }
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -178,14 +220,27 @@ fun RecordingSettingsScreen(
                         prefs.storageMode = storage
                     }
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = template,
-                        onValueChange = { template = it; prefs.fileNameTemplate = it.ifBlank { RecordingPrefs.DEFAULT_FILE_NAME_TEMPLATE } },
-                        label = { Text("File name") },
-                        supportingText = { Text("{contact_name} {phone_number} {date} {direction} {app_source} {cross_country}", fontSize = 11.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    // The template is no longer a permanently visible text box (the raw {tokens} looked like
+                    // leftover code). It is shown as a normal line with a pencil; the editor opens in a dialog.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { editingTemplate = template }
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("File name", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+                            Text(
+                                fileNamePreview(template),
+                                fontSize = 12.5.sp, color = palette.textSecondary, maxLines = 1
+                            )
+                        }
+                        IconButton(onClick = { editingTemplate = template }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit file name", tint = palette.accent)
+                        }
+                    }
                 }
             }
 
@@ -282,4 +337,18 @@ private fun Choice(title: String, value: String, palette: DialerPalette, onClick
         Text(title, fontSize = 14.sp, color = palette.textPrimary)
         Text(value, fontSize = 12.sp, color = palette.accent)
     }
+}
+
+
+/** Shows what a template turns into, using made-up values, so the raw {tokens} never have to be shown as the main text. */
+private fun fileNamePreview(template: String): String {
+    val t = template.ifBlank { RecordingPrefs.DEFAULT_FILE_NAME_TEMPLATE }
+    return t
+        .replace("{contact_name}", "Aarav")
+        .replace("{phone_number}", "9876543210")
+        .replace("{date}", "2026-09-20_14-30")
+        .replace("{direction}", "incoming")
+        .replace("{app_source}", "WhatsApp")
+        .replace("{cross_country}", "")
+        .trim('_', ' ', '-') + ".m4a"
 }

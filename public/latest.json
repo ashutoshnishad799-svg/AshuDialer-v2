@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "1.6.0",
-  "downloadUrl": "https://github.com/ashutoshnishad799-svg/AshuDialer-v2/releases/download/v1.6.0/AshuPhone-1.6.0.apk",
-  "releaseNotes": "Call recording rebuilt on Shizuku (phone, WhatsApp, Telegram), new incoming-call styles, responsive dialer, private space and updater fixes."
+  "versionCode": 11,
+  "versionName": "1.6.1",
+  "downloadUrl": "https://github.com/ashutoshnishad799-svg/AshuDialer-v2/releases/download/v1.6.1/AshuPhone-1.6.1.apk",
+  "releaseNotes": "Smoother dialer and in-call screen, swipe between tabs, lock-screen call fixes, PIN and lockout for Private Space, tamper check."
 }

@@ -32,6 +32,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -141,6 +143,14 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A modified / re-signed copy does not start the app. Calls are unaffected (the in-call screen and the call
+        // services do not go through this activity), so the phone still works. See IntegrityGuard.
+        if (com.ashudialer.app.util.IntegrityGuard.verify(this) == com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED) {
+            setContent {
+                com.ashudialer.app.ui.screens.TamperedScreen(context = this, onClose = { finishAffinity() })
+            }
+            return
+        }
         com.ashudialer.app.data.AnalyticsTracker.logAppOpened(this)
 
         // Without this, the activity runs in Android's legacy (non
@@ -278,7 +288,21 @@ class MainActivity : ComponentActivity() {
             val onboardingComplete by app.onboardingPreference.isCompleteFlow.collectAsState(initial = null)
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             var selectedTab by remember { mutableStateOf(DialerTab.RECENT) }
+            // Swipe left / right between the five tabs. The bottom bar's glass pill follows the drag (DialerBottomNav).
+            val tabPagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = selectedTab.ordinal) {
+                DialerTab.values().size
+            }
+            LaunchedEffect(tabPagerState) {
+                androidx.compose.runtime.snapshotFlow { tabPagerState.currentPage }.collect { page ->
+                    val swipedTo = DialerTab.values()[page]
+                    if (swipedTo != selectedTab) selectedTab = swipedTo
+                }
+            }
             var recordingGuideOpenedFromSettings by remember { mutableStateOf(false) }
+            // Which screen opened the recording guide, so Back returns THERE. It used to always return to the
+            // Recordings list, so tapping the (?) button on Recording settings and pressing Back dropped the person
+            // out of Recording settings altogether.
+            var recordingGuideReturnTo by remember { mutableStateOf<OverlayScreen?>(null) }
             // True while the recording setup/settings screens were opened from Settings
             // (not from the Recordings list). Every Back in that flow then returns to
             // Settings instead of dropping the person into the Recordings list, which
@@ -813,7 +837,8 @@ class MainActivity : ComponentActivity() {
                             dialerAddContactNumber = null
                             overlay = OverlayScreen.NONE
                         }
-                        OverlayScreen.RECORDING_GUIDE -> overlay = if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
+                        OverlayScreen.RECORDING_GUIDE -> overlay = recordingGuideReturnTo
+                            ?: if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
                         OverlayScreen.RECORDING_SETTINGS -> overlay =
                             if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
                         OverlayScreen.RECORDING_SETUP -> {
@@ -942,7 +967,14 @@ class MainActivity : ComponentActivity() {
                         containerColor = Color.Transparent,
                         bottomBar = {
                             if (overlay == OverlayScreen.NONE && callHistoryPageContact == null && selectedContactForDetail == null && unknownNumberForDetail == null) {
-                                DialerBottomNav(selected = selectedTab, onSelect = { selectedTab = it })
+                                DialerBottomNav(
+                                    selected = selectedTab,
+                                    position = { tabPagerState.currentPage + tabPagerState.currentPageOffsetFraction },
+                                    onSelect = { tab ->
+                                        selectedTab = tab
+                                        scope.launch { tabPagerState.animateScrollToPage(tab.ordinal) }
+                                    }
+                                )
                             }
                         }
                     ) { padding ->
@@ -996,27 +1028,30 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                            AnimatedContent(
-                                targetState = selectedTab,
+                            HorizontalPager(
+                                state = tabPagerState,
                                 modifier = Modifier
                                     .weight(1f)
                                     .blockInteractionWhen(overlay != OverlayScreen.NONE || callHistoryPageContact != null || selectedContactForDetail != null || unknownNumberForDetail != null),
-                                transitionSpec = {
-                                    val forward = targetState.ordinal > initialState.ordinal
-
-
-                                    val slideDistance = { fullWidth: Int -> fullWidth / 10 }
-                                    (fadeIn(tween(160)) + slideInHorizontally(
-                                        animationSpec = tween(160),
-                                        initialOffsetX = { w -> if (forward) slideDistance(w) else -slideDistance(w) }
-                                    )) togetherWith
-                                        (fadeOut(tween(110)) + slideOutHorizontally(
-                                            animationSpec = tween(110),
-                                            targetOffsetX = { w -> if (forward) -slideDistance(w) else slideDistance(w) }
-                                        ))
-                                },
-                                label = "tab-content"
-                            ) { tab ->
+                                // Swiping is off while any full-screen page or detail view is on top of the tabs.
+                                userScrollEnabled = !(overlay != OverlayScreen.NONE || callHistoryPageContact != null || selectedContactForDetail != null || unknownNumberForDetail != null)
+                            ) { page ->
+                                val tab = DialerTab.values()[page]
+                                // Pages sliding past each other fade and shrink very slightly, so the swipe reads as
+                                // depth (glass panes passing) rather than a flat cut.
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val away = kotlin.math.abs(
+                                                (tabPagerState.currentPage - page) + tabPagerState.currentPageOffsetFraction
+                                            ).coerceIn(0f, 1f)
+                                            alpha = 1f - 0.45f * away
+                                            val shrink = 1f - 0.05f * away
+                                            scaleX = shrink
+                                            scaleY = shrink
+                                        }
+                                ) {
                                 when (tab) {
                                     DialerTab.RECENT -> RecentsScreen(
                                         recents = recents,
@@ -1179,6 +1214,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     )
+                                }
                                 }
                             }
                             }
@@ -1551,6 +1587,7 @@ class MainActivity : ComponentActivity() {
                                             onMoveToPrivateSpace = { files -> moveRecordingsToPrivateSpace(files) },
                                             onOpenRecordingGuide = {
                                                 recordingGuideOpenedFromSettings = false
+                                                recordingGuideReturnTo = OverlayScreen.RECORDINGS
                                                 overlay = OverlayScreen.RECORDING_GUIDE
                                             },
                                             onOpenRecordingSettings = {
@@ -1567,6 +1604,7 @@ class MainActivity : ComponentActivity() {
                                             onBack = { overlay = if (recordingFlowFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS },
                                             onOpenGuide = {
                                                 recordingGuideOpenedFromSettings = false
+                                                recordingGuideReturnTo = OverlayScreen.RECORDING_SETTINGS
                                                 overlay = OverlayScreen.RECORDING_GUIDE
                                             },
                                             onOpenSetup = { overlay = OverlayScreen.RECORDING_SETUP },
@@ -1589,6 +1627,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onOpenGuide = {
                                                 recordingGuideOpenedFromSettings = false
+                                                recordingGuideReturnTo = OverlayScreen.RECORDING_SETUP
                                                 overlay = OverlayScreen.RECORDING_GUIDE
                                             },
                                             modifier = Modifier.fillMaxSize()
@@ -1700,7 +1739,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                         OverlayScreen.RECORDING_GUIDE -> com.ashudialer.app.ui.screens.RecordingGuideScreen(
                                             onBack = {
-                                                overlay = if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
+                                                overlay = recordingGuideReturnTo
+                                                    ?: if (recordingGuideOpenedFromSettings) OverlayScreen.SETTINGS else OverlayScreen.RECORDINGS
                                             },
                                             onConfirmEnable = if (recordingGuideOpenedFromSettings) {
                                                 {

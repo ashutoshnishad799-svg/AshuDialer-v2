@@ -3,6 +3,7 @@ package com.ashudialer.app.ui.screens
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -15,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -304,80 +308,56 @@ fun DialerScreen(
     // below still hold exactly as before.
     // ------------------------------------------------------------------------------
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        // All sizing below is done in plain Float dp values (.value) and converted
-        // back with .dp at the end. Float.coerceIn / minOf / maxOf are ordinary Kotlin
-        // stdlib calls, so no Compose-specific Dp operator or import is needed.
+        // LAYOUT, top to bottom (everything is anchored to the BOTTOM, next to the thumb, like a stock dialer):
+        //
+        //   [ free space ]  [ contact suggestions ]  [ typed number ]  [ Add to Contacts / Paste ]  [ keys ]  [ call ]
+        //
+        // Every zone has a FIXED height that never depends on what has been typed, so nothing shifts while
+        // typing. Only the keys are sized from the screen: they are 70dp (the size this dialer has always
+        // had) and only SHRINK on a short phone or a large system font. Row spacing is the key plus a 10dp
+        // cell margin, with no extra gap - that is what made the keypad look "spread out" when a solver
+        // stretched it to fill the height.
         val availW = maxWidth.value
         val availH = maxHeight.value
 
         val sidePadF = (availW * 0.07f).coerceIn(16f, 32f)
-        val usableWF = availW - sidePadF * 2f
-        // 3 keys + 2 gaps must fit across the usable width.
-        val keyFromWidth = (usableWF - 28f) / 3f
+        val keyFromWidth = (availW - sidePadF * 2f - 28f) / 3f
 
-        // Vertical zones that do NOT depend on the key size.
-        val topPadF = (availH * 0.02f).coerceIn(6f, 20f)
-        val numberZoneF = (availH * 0.10f).coerceIn(56f, 120f)
-        val hintZoneF = (availH * 0.04f).coerceIn(28f, 46f)
-        // The contact-match list must always be able to show at least ONE full row
-        // (a row is ~64dp: 38dp avatar + 24dp padding, plus the list's 8dp top padding).
-        // It then grows to use whatever height is left over - see matchZoneF below.
-        val minMatchF = 68f
-        val topFixedF = topPadF + numberZoneF + hintZoneF + minMatchF
+        val topPadF = 8f
+        val numberZoneF = 64f          // the typed number
+        val hintZoneF = 48f            // "Add to Contacts" / "Paste" chips (a chip is 36dp, so it can never be clipped)
+        val minMatchF = 56f            // the suggestion list always has room for at least one row
+        val haloF = 10f                // every key sits in a (key + 10dp) cell
+        val callTopGapF = 14f
+        val callBottomGapF = 26f
 
-        // SOLVE the key size so the whole stack fills the height it is given.
-        // In the normal range (no clamp active) the height of everything BELOW the
-        // match list (key rows + call button + gaps) is
-        //     40 + 6.14 * key
-        // where 6.14 = 4 rows (4) + 5 row-gaps at 0.16 (0.80) + 2 call gaps at 0.24
-        // (0.48) + the call button at 0.86, and the constant 40 is the four 10dp
-        // key-halo margins. Solving for key gives the line below. This was checked
-        // against eleven phone sizes (320x480 up to a 673x841 fold): every size from
-        // 360x640 up fits, the smallest key is ~54dp, and the ones that cannot fit
-        // (320x480, landscape) fall back to scrolling - see `needsScroll`.
-        // The key is capped at 72dp - the size this dialer has always had and the one that looks
-        // right. The solver only SHRINKS it (small phones, big system font/display size); it never
-        // grows it past 72dp, because on a tall phone that made the keys look oversized. Whatever
-        // height is left over goes to the number / contact-match area above the keypad instead.
-        val keySizeF = ((availH - topFixedF - 40f) / 6.14f)
-            .coerceAtMost(keyFromWidth)
-            .coerceAtMost(72f)
-            .coerceAtLeast(44f)
+        // Height left for 4 key rows + the call button once the fixed zones are taken out; the call button is
+        // about 0.86 of a key, so the whole stack is (4 + 0.86) keys plus the margins.
+        val keyByHeight = (availH - topPadF - numberZoneF - hintZoneF - minMatchF - callTopGapF - callBottomGapF - 4f * haloF) / 4.86f
+        val keySizeF = minOf(keyByHeight, keyFromWidth, 70f).coerceAtLeast(44f)
+        val callSizeF = (keySizeF * 0.86f).coerceIn(46f, 60f)
+
+        val bottomBlockF = 4f * (keySizeF + haloF) + callTopGapF + callSizeF + callBottomGapF
+        val leftoverF = availH - topPadF - numberZoneF - hintZoneF - bottomBlockF
+        val matchZoneF = leftoverF.coerceAtLeast(minMatchF).coerceAtMost(MAX_MATCH_ZONE_DP)
+        val topSpacerF = (leftoverF - matchZoneF).coerceAtLeast(0f)
+        // Only a very short screen (or landscape) cannot fit everything: then the column scrolls.
+        val needsScroll = topPadF + numberZoneF + hintZoneF + matchZoneF + bottomBlockF > availH + 1f
 
         val sidePad = sidePadF.dp
         val keySize = keySizeF.dp
         val numberZoneH = numberZoneF.dp
         val hintZoneH = hintZoneF.dp
-        val topPad = topPadF.dp
-        val rowGapF = (keySizeF * 0.16f).coerceIn(6f, 18f)
-        val rowGap = rowGapF.dp
-        val callSizeF = (keySizeF * 0.86f).coerceIn(50f, 76f)
-        val callSize = callSizeF.dp
-        val callTopGapF = (keySizeF * 0.24f).coerceIn(8f, 22f)
-        val callTopGap = callTopGapF.dp
-        val numberFontBase = (keySizeF * 0.47f).coerceIn(26f, 42f)
-        val numberTopPad = (numberZoneF * 0.22f).dp
-        val keyRowPad = (rowGapF / 2f).dp
-
-        // Height of everything from the key rows down (this block never moves).
-        val bottomBlockF = rowGapF + 4f * (keySizeF + 10f + rowGapF) + 2f * callTopGapF + callSizeF
-        // The match list gets ALL the height that is left, never less than one row.
-        // Because it is derived from the same numbers as everything else, it is a
-        // constant for a given screen: typing or backspacing never changes it, so the
-        // dialpad still cannot jump (the original "dialpad moves" fix is preserved).
-        val leftoverF = availH - topPadF - numberZoneF - hintZoneF - bottomBlockF
-        // The match list is capped (about 2.5 contact rows). Anything beyond that is NOT given to it:
-        // an ever-taller empty list area just pushes the keypad down and leaves a hole above it.
-        val matchZoneF = leftoverF.coerceAtLeast(minMatchF).coerceAtMost(MAX_MATCH_ZONE_DP)
         val matchZoneH = matchZoneF.dp
-        // ...the remaining height becomes plain space ABOVE the number area, so the dialpad and the
-        // call button stay anchored to the bottom (where the thumb is), like every stock dialer.
-        val topSpacerF = (leftoverF - matchZoneF).coerceAtLeast(0f)
-
-        val neededF = topPadF + numberZoneF + hintZoneF + matchZoneF + bottomBlockF
-        // True on a screen too short for a full dialpad (very small phones, landscape):
-        // the column then scrolls instead of pushing the call button off-screen.
-        val needsScroll = neededF > availH + 1f
+        val topPad = topPadF.dp
+        val callSize = callSizeF.dp
+        val callTopGap = callTopGapF.dp
+        val callBottomGap = callBottomGapF.dp
+        val numberFont = when {
+            number.length <= 11 -> 36f
+            number.length <= 15 -> 30f
+            else -> 24f
+        }
 
     Column(
         modifier = Modifier
@@ -401,115 +381,14 @@ fun DialerScreen(
         // while typing), so the "dialpad jumps" fixes are unaffected.
         if (topSpacerF > 0f) Spacer(Modifier.height(topSpacerF.dp))
 
-        // Fixed-height zone for the typed number + match state. This used to
-        // be a plain Column that grew taller as more contacts matched, which
-        // pushed the dialpad further down each keystroke - with enough
-        // matches the dialpad was shoved off-screen entirely (the
-        // "dialpad gayab ho jaata hai" bug). Now the number line has its own
-        // slot and the match list lives in a capped-height scrollable strip
-        // right below it, so the dialpad's position never moves no matter
-        // how many contacts match.
-        //
-        // THE FIX for "dialpad still moves up/down" (still happening after
-        // the heightIn(min=...) attempt below): heightIn(min=...) only sets
-        // a FLOOR, not a ceiling - it stops this zone from ever being
-        // shorter than 104dp, but never stops it from growing TALLER, which
-        // is exactly what happened whenever the "Add to Contacts" chip's own
-        // AnimatedVisibility (below) played its enter animation - a chip
-        // that slides/scales in adds real height to this Column while it's
-        // animating in, on top of whatever height it settles at, and this
-        // Column's parent is Arrangement.Top, so growing THIS block's height
-        // pushes literally everything below it (match list, then dialpad,
-        // then call button) down and back up again as the chip animates.
-        // A fixed .height(...) (not heightIn) makes this zone a true
-        // fixed-size window - nothing inside it, however it animates, can
-        // ever change how much vertical space this Column occupies, so
-        // nothing below it can ever be displaced by what happens to the
-        // number field or the hint chip. 120dp (up from the old 104dp floor)
-        // gives the chip enough headroom to fully play its slide/scale-in
-        // animation without clipping.
-        Column(
-            modifier = Modifier.fillMaxWidth().height(numberZoneH).padding(top = numberTopPad, bottom = 2.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
-        ) {
-            // A real editable field, not a Text label - long-pressing now
-            // brings up the system's own copy/paste/select-all toolbar the
-            // same way it would in Messages or any other app, and tapping
-            // anywhere in the number moves the cursor there instead of only
-            // ever being able to edit from the end. cursorBrush uses the
-            // theme's accent color so the blinking cursor matches whichever
-            // palette is active rather than defaulting to black/white.
-            //
-            // readOnly = true is the key line here: it keeps cursor
-            // placement, text selection, and the long-press copy/paste
-            // toolbar fully working (those are just state changes this
-            // composable still receives through onValueChange), but tells
-            // Compose never to request the system soft keyboard for this
-            // field. Without it, tapping the number line popped up Gboard's
-            // (or whichever IME is installed) own numeric layout on top of
-            // this screen's own dialpad - two number pads stacked on each
-            // other, when only the app's own dialpad should ever be the
-            // input source. Typing digits still works normally because
-            // DialerKey's onPress calls insertAtCursor directly, which is a
-            // regular state update, not something readOnly blocks.
-            BasicTextField(
-                value = numberField,
-                onValueChange = { numberField = it },
-                readOnly = true,
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    fontSize = (if (number.length > 10) numberFontBase * 0.82f else numberFontBase).sp,
-                    fontWeight = FontWeight.Light,
-                    color = palette.textPrimary,
-                    textAlign = TextAlign.Center
-                ),
-                singleLine = true,
-                cursorBrush = androidx.compose.ui.graphics.SolidColor(palette.accent),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showAddContactHint,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }) + scaleIn(initialScale = 0.85f),
-                exit = fadeOut() + scaleOut(targetScale = 0.85f)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(top = 6.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(palette.accentSoft)
-                        .clickable { onAddContact(number) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = palette.accent, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Add to Contacts",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = palette.accent
-                    )
-                }
-            }
-        }
-
-        // Capped-height strip: as more numbers match, this scrolls internally
-        // instead of expanding and displacing the dialpad below it. As the
-        // person keeps dialing, normalizeForMatch's contains() check only
-        // gets stricter, so the match count naturally shrinks toward the one
-        // real contact they meant - this container just makes sure that
-        // narrowing is visible as a scroll-shortening list, not a layout jump.
-        // Reserve a constant match-results slot. The old weighted AnimatedVisibility
-        // changed the amount of occupied space as backspace removed the final match,
-        // which made the dialpad subtly re-anchor. Keeping one fixed viewport prevents
-        // that movement while still allowing the result list itself to animate.
-        Box(Modifier.fillMaxWidth().height(matchZoneH)) {
+        // Contact suggestions. Bottom-aligned, so the list sits right on top of the number and grows upward as
+        // more contacts match; the zone itself is a fixed height, so nothing below it ever moves.
+        Box(Modifier.fillMaxWidth().height(matchZoneH), contentAlignment = Alignment.BottomCenter) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = matchedByContactId.isNotEmpty(),
-                enter = fadeIn() + scaleIn(initialScale = 0.97f),
-                exit = fadeOut() + scaleOut(targetScale = 0.97f),
-                modifier = Modifier.fillMaxSize()
+                enter = fadeIn(animationSpec = tween(150)) + scaleIn(animationSpec = tween(170), initialScale = 0.97f),
+                exit = fadeOut(animationSpec = tween(100)) + scaleOut(animationSpec = tween(100), targetScale = 0.97f),
+                modifier = Modifier.fillMaxWidth().heightIn(max = matchZoneH)
             ) {
                 MatchedContactsList(
                     matchedByContactId = matchedByContactId,
@@ -522,105 +401,76 @@ fun DialerScreen(
             }
         }
 
-        Spacer(Modifier.height(rowGap).fillMaxWidth())
+        // The typed number: fixed height, centred, directly above the chips row and the keys.
+        Box(
+            modifier = Modifier.fillMaxWidth().height(numberZoneH),
+            contentAlignment = Alignment.Center
+        ) {
+            BasicTextField(
+                value = numberField,
+                onValueChange = { numberField = it },
+                readOnly = true,
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = numberFont.sp,
+                    fontWeight = FontWeight.Light,
+                    color = palette.textPrimary,
+                    textAlign = TextAlign.Center
+                ),
+                singleLine = true,
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(palette.accent),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
-        // THE FIX for "dialpad still moves up and down" (the biggest single
-        // cause of it): these two hint chips (Add to Contacts / Paste) sit
-        // directly in this Column's normal flow, immediately above the
-        // dialpad grid. Whenever either one's AnimatedVisibility toggled -
-        // e.g. typing past 5 digits shows "Add to Contacts", backspacing
-        // down to an empty field can reveal "Paste" - it added or removed
-        // real height right where it sits, and because everything below it
-        // (the whole dialpad grid + call button) is laid out after it in
-        // this same Arrangement.Top Column, that shifted the entire dialpad
-        // up or down by exactly the chip's height on every single toggle -
-        // which given how often typing crosses that 5-digit threshold or
-        // clears the field, is easily the most frequently-triggered version
-        // of this bug.
-        //
-        // Wrapping both in one fixed-height Box (rather than leaving them as
-        // two independent AnimatedVisibility calls in the flow) reserves a
-        // constant amount of space for "whichever hint chip is showing, if
-        // any" - exactly the same reserve-space technique used for the
-        // number field zone above, applied here for the same reason. The
-        // two chips are mutually exclusive by construction (see the existing
-        // comment below) and both align to the bottom of this fixed box, so
-        // the chip appears to grow upward out of the space right above the
-        // dialpad - matching the original slide-up entrance animation -
-        // without the dialpad itself ever moving.
+        // "Add to Contacts" / "Paste". ONE row, ONE copy of each chip. There used to be a second "Add to Contacts"
+        // chip inside the number zone as well; both sat in boxes shorter than the chip, so each was cut off (the
+        // hidden "Add to Contacts" and the empty pill under the number). The row is a fixed 48dp tall and the chips
+        // are 36dp, so they always fit; if both apply they sit side by side instead of on top of each other.
         Box(
             modifier = Modifier.fillMaxWidth().height(hintZoneH),
-            contentAlignment = Alignment.BottomCenter
+            contentAlignment = Alignment.Center
         ) {
-            // Add-to-Contacts and Paste now render here, directly above the
-            // dialpad grid, instead of under the number field near the top of
-            // the screen. The two are mutually exclusive by construction -
-            // showAddContactHint only turns on once 5+ digits are typed, and
-            // clipboardHasNumber only turns on while the field is empty - so
-            // exactly one of these (or neither) is ever visible at a time, no
-            // extra coordination needed between them.
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showAddContactHint,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }) + scaleIn(initialScale = 0.85f),
-                exit = fadeOut() + scaleOut(targetScale = 0.85f)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(palette.accentSoft)
-                        .clickable { onAddContact(number) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showAddContactHint,
+                    enter = fadeIn(animationSpec = tween(140)) + scaleIn(animationSpec = tween(160), initialScale = 0.9f),
+                    exit = fadeOut(animationSpec = tween(100)) + scaleOut(animationSpec = tween(100), targetScale = 0.9f)
                 ) {
-                    Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = palette.accent, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Add to Contacts",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = palette.accent
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(palette.accentSoft)
+                            .clickable { onAddContact(number) }
+                            .padding(horizontal = 14.dp)
+                    ) {
+                        Icon(Icons.Filled.PersonAdd, contentDescription = null, tint = palette.accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(text = "Add to Contacts", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = palette.accent, maxLines = 1)
+                    }
                 }
-            }
-
-            androidx.compose.animation.AnimatedVisibility(
-                visible = clipboardHasNumber,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }) + scaleIn(initialScale = 0.85f),
-                exit = fadeOut() + scaleOut(targetScale = 0.85f)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .border(1.dp, palette.cardBorder, RoundedCornerShape(16.dp))
-                        .clickable { pasteFromClipboard() }
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = clipboardHasNumber,
+                    enter = fadeIn(animationSpec = tween(140)) + scaleIn(animationSpec = tween(160), initialScale = 0.9f),
+                    exit = fadeOut(animationSpec = tween(100)) + scaleOut(animationSpec = tween(100), targetScale = 0.9f)
                 ) {
-                    Text(
-                        text = "Paste",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = palette.textPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .border(1.dp, palette.cardBorder, RoundedCornerShape(18.dp))
+                            .clickable { pasteFromClipboard() }
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Text(text = "Paste", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary, maxLines = 1)
+                    }
                 }
             }
         }
 
-        // THE FIX for "dialpad jumps up when I press backspace": keySize and
-        // keyVerticalPadding used to animate the whole dialpad grid smaller
-        // (78dp -> 62dp) whenever matchedByContactId was non-empty, and back
-        // to full size the instant it emptied out (e.g. backspacing below 3
-        // digits). Because the parent Column is Arrangement.Top, growing the
-        // dialpad's own height while contactd matches were disappearing
-        // above it made the whole dialpad+call-button block visibly shift
-        // upward for the fraction of a second both animations were running.
-        // The dialpad's key size is now always fixed - only the match list
-        // above it grows/shrinks/scrolls (already capped via
-        // weight(1f, fill=false) + AnimatedVisibility above), so backspacing
-        // never resizes anything below the number field.
-        val keyVerticalPadding = keyRowPad
+        val keyVerticalPadding = 0.dp
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             keys.chunked(3).forEach { row ->
@@ -647,7 +497,7 @@ fun DialerScreen(
         }
 
         Box(
-            modifier = Modifier.fillMaxWidth().padding(top = callTopGap, bottom = callTopGap),
+            modifier = Modifier.fillMaxWidth().padding(top = callTopGap, bottom = callBottomGap),
             contentAlignment = Alignment.Center
         ) {
             val callInteractionSource = remember { MutableInteractionSource() }
@@ -675,17 +525,30 @@ fun DialerScreen(
             androidx.compose.animation.AnimatedVisibility(
                 visible = number.isNotEmpty(),
                 modifier = Modifier.align(Alignment.CenterEnd),
-                enter = fadeIn() + scaleIn(initialScale = 0.7f),
-                exit = fadeOut() + scaleOut(targetScale = 0.7f)
+                // Fade only (no scale-in): a key that is still growing when the first digit is typed ignores taps
+                // for the first moments, which felt like the backspace "not working".
+                enter = fadeIn(animationSpec = tween(120)),
+                exit = fadeOut(animationSpec = tween(120))
             ) {
                 var isBackspacePressed by remember { mutableStateOf(false) }
-                val backspaceScale by animateFloatSpring(if (isBackspacePressed) 0.85f else 1f)
+                val backspaceGlow by animateFloatAsState(
+                    targetValue = if (isBackspacePressed) 1f else 0f,
+                    animationSpec = tween(if (isBackspacePressed) 45 else 220),
+                    label = "backspace-glow"
+                )
+                val backspaceScale by animateFloatAsState(
+                    targetValue = if (isBackspacePressed) 0.88f else 1f,
+                    animationSpec = if (isBackspacePressed) tween(50) else spring(dampingRatio = 0.7f, stiffness = 520f),
+                    label = "backspace-scale"
+                )
 
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .scale(backspaceScale)
+                        // 56dp: the old 44dp target was smaller than a fingertip.
+                        .size(56.dp)
+                        .graphicsLayer { scaleX = backspaceScale; scaleY = backspaceScale }
                         .clip(CircleShape)
+                        .background(palette.textSecondary.copy(alpha = 0.16f * backspaceGlow))
                         .repeatingClickable(
                             enabled = number.isNotEmpty(),
                             onPressChange = { isBackspacePressed = it },
@@ -693,19 +556,9 @@ fun DialerScreen(
                                 val start = numberField.selection.start.coerceIn(0, numberField.text.length)
                                 val end = numberField.selection.end.coerceIn(0, numberField.text.length)
                                 numberField = if (start != end) {
-                                    // A selection is active (e.g. after
-                                    // pasting and selecting a run of digits)
-                                    // - delete exactly that, same as any
-                                    // text field's backspace-with-selection.
-                                    TextFieldValue(
-                                        numberField.text.removeRange(start, end),
-                                        TextRange(start)
-                                    )
+                                    TextFieldValue(numberField.text.removeRange(start, end), TextRange(start))
                                 } else if (start > 0) {
-                                    TextFieldValue(
-                                        numberField.text.removeRange(start - 1, start),
-                                        TextRange(start - 1)
-                                    )
+                                    TextFieldValue(numberField.text.removeRange(start - 1, start), TextRange(start - 1))
                                 } else {
                                     numberField
                                 }
@@ -717,23 +570,7 @@ fun DialerScreen(
                     Icon(
                         Icons.Filled.Backspace,
                         contentDescription = "Backspace",
-                        tint = palette.textSecondary,
-                        // THE FIX for "backspace button looks smaller than
-                        // everything else on the dialpad": this Icon had
-                        // no explicit size at all, so it fell back to
-                        // Material 3's unstated default (24.dp). That
-                        // would be fine in isolation, but the
-                        // Icons.Filled.Backspace glyph itself has more
-                        // internal empty space within its 24x24 viewBox
-                        // than bulkier glyphs like Phone (used at 26.dp
-                        // just above for the call button) or the numeric
-                        // dialpad glyphs elsewhere on this screen - at
-                        // the same nominal box size it reads visibly
-                        // smaller/lighter than its neighbors, which is
-                        // exactly the "chhota ho ja raha h" (looks like
-                        // it's shrinking) effect in the screenshot. Sizing
-                        // it up to visually match its siblings' weight,
-                        // rather than leaving it at the unstated default.
+                        tint = palette.textPrimary.copy(alpha = 0.72f),
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -923,7 +760,7 @@ private fun animateFloatSpring(target: Float) = androidx.compose.animation.core.
     targetValue = target,
 
 
-    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+    animationSpec = spring(dampingRatio = 0.72f, stiffness = 560f),
     label = "press-scale"
 )
 
@@ -968,67 +805,56 @@ private fun DialerKey(
     size: androidx.compose.ui.unit.Dp = 78.dp,
     onPress: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatSpring(if (isPressed) 0.90f else 1f)
-    val haloScale by animateFloatSpring(if (isPressed) 1.18f else 0.94f)
-    val haloAlpha by animateFloatAsState(
-        targetValue = if (isPressed) 0.72f else 0f,
-        animationSpec = tween(if (isPressed) 90 else 170),
-        label = "dial-halo-alpha"
+    // The digit is entered the moment the finger goes DOWN (and the tone and haptic start with it), exactly like a
+    // real keypad. It used to wait for the finger to LIFT (clickable), so every key felt a beat late, and it ran three
+    // bouncy springs at once (scale + two halos) that made the keys wobble after each tap.
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.93f else 1f,
+        animationSpec = if (pressed) tween(50, easing = FastOutSlowInEasing) else spring(dampingRatio = 0.68f, stiffness = 520f),
+        label = "dial-key-scale"
     )
-    val innerAlpha by animateFloatAsState(
-        targetValue = if (isPressed) 0.42f else 0f,
-        animationSpec = tween(if (isPressed) 70 else 150),
-        label = "dial-inner-alpha"
+    val glow by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = tween(if (pressed) 45 else 240),
+        label = "dial-key-glow"
     )
+    val fire = onPress
 
     Box(Modifier.size(size + 10.dp), contentAlignment = Alignment.Center) {
-        // Pressed-key glass morphism: two soft concentric glass rings expand
-        // around the key so the touch feels like it is pushing through a
-        // translucent surface, rather than only shrinking the button.
-        Box(
-            Modifier
-                .size(size)
-                .scale(haloScale)
-                .alpha(haloAlpha)
-                .border(1.2.dp, palette.accent.copy(alpha = 0.55f), CircleShape)
-        )
-        Box(
-            Modifier
-                .size(size * 0.91f)
-                .scale(if (isPressed) 1.05f else 0.92f)
-                .alpha(innerAlpha)
-                .clip(CircleShape)
-                .background(palette.accentSoft.copy(alpha = 0.70f))
-        )
         Box(
             modifier = Modifier
                 .size(size)
-                .scale(scale)
+                // State is read inside these lambdas, so a press redraws the key instead of recomposing the screen.
+                .graphicsLayer { scaleX = scale; scaleY = scale }
                 .glassCircle(palette)
-                .clickable(
-                    indication = null,
-                    interactionSource = interactionSource,
-                    onClick = onPress
-                ),
+                .drawWithContent {
+                    // Soft accent glow that lights up on touch-down and fades out on release.
+                    drawCircle(color = palette.accent.copy(alpha = 0.20f * glow))
+                    drawContent()
+                }
+                .pointerInput(key) {
+                    detectTapGestures(
+                        onPress = {
+                            pressed = true
+                            fire()
+                            tryAwaitRelease()
+                            pressed = false
+                        }
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
-        // Digit/letter sizes scale proportionally with the key's own size
-        // (both driven off the same 78dp full-size baseline), so shrinking
-        // the whole dialpad while matches are showing keeps everything in
-        // the same visual proportion instead of the glyphs staying full-size
-        // inside a smaller circle.
-        val sizeFraction = size / 78.dp
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(key.digit, fontSize = (30 * sizeFraction).sp, fontWeight = FontWeight.Normal, color = palette.textPrimary)
-            if (key.letters.isNotEmpty()) {
-                Text(
-                    key.letters, fontSize = (9 * sizeFraction).sp, fontWeight = FontWeight.Bold,
-                    color = palette.textSecondary, letterSpacing = 1.2.sp
-                )
+            val sizeFraction = size / 78.dp
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(key.digit, fontSize = (30 * sizeFraction).sp, fontWeight = FontWeight.Normal, color = palette.textPrimary)
+                if (key.letters.isNotEmpty()) {
+                    Text(
+                        key.letters, fontSize = (9 * sizeFraction).sp, fontWeight = FontWeight.Bold,
+                        color = palette.textSecondary, letterSpacing = 1.2.sp
+                    )
+                }
             }
-        }
         }
     }
 }

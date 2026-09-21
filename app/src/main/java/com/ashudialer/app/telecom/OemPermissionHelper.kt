@@ -82,6 +82,112 @@ object OemPermissionHelper {
     }
 
     /** Generic (non-MIUI-specific) battery optimization screen for this app, as a last resort. */
+    // ------------------------------------------------------------------------------------------
+    // "Calls on the lock screen" - everything that has to be allowed for a ringing call to turn the screen
+    // on, open full screen, and stay usable without asking for the PIN.
+    // ------------------------------------------------------------------------------------------
+
+    /** One thing that is switched off and stops calls from showing properly on the lock screen. */
+    data class LockScreenIssue(val id: String, val title: String, val hint: String)
+
+    fun canDrawOverlays(context: Context): Boolean = try {
+        Settings.canDrawOverlays(context)
+    } catch (_: Throwable) { true }
+
+    fun openOverlaySettings(context: Context): Boolean = try {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        true
+    } catch (_: Exception) { openAppBatterySettings(context) }
+
+    /**
+     * Xiaomi / Redmi / POCO (MIUI, HyperOS) keep two of their own per-app switches that Android does not know
+     * about. Without them MIUI turns a full-screen call into a plain notification, does not switch the screen
+     * on, and hides the call screen behind the lock screen, so answering asks for the PIN. Both are read from
+     * MIUI's own app-ops (codes 10020 = show on lock screen, 10021 = start from background).
+     * Returns true / false, or null when the phone did not answer (some HyperOS builds), meaning "unknown".
+     */
+    private fun miuiOp(context: Context, op: Int): Boolean? {
+        if (!isLikelyMiui()) return null
+        return try {
+            val ops = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val method = ops.javaClass.getMethod(
+                "checkOpNoThrow", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, String::class.java
+            )
+            val result = method.invoke(ops, op, android.os.Process.myUid(), context.packageName) as Int
+            result == android.app.AppOpsManager.MODE_ALLOWED
+        } catch (_: Throwable) { null }
+    }
+
+    fun miuiShowOnLockScreenAllowed(context: Context): Boolean? = miuiOp(context, 10020)
+    fun miuiBackgroundStartAllowed(context: Context): Boolean? = miuiOp(context, 10021)
+
+    private const val PREFS = "ashu_oem_prefs"
+    private const val KEY_MIUI_CONFIRMED = "miui_lockscreen_confirmed"
+
+    /** The person tapped "I've turned these on" (used only when the phone cannot report the switches). */
+    fun confirmMiuiPermissions(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_MIUI_CONFIRMED, true).apply()
+    }
+
+    fun isMiuiConfirmedByUser(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MIUI_CONFIRMED, false)
+
+    /** Everything currently switched off that matters for lock-screen calls (empty = all good). */
+    fun lockScreenIssues(context: Context): List<LockScreenIssue> = buildList<LockScreenIssue> {
+        if (!canUseFullScreenIntent(context)) {
+            add(LockScreenIssue("fsi", "Full screen notifications", "Lets the call screen open over the lock screen"))
+        }
+        if (!canDrawOverlays(context)) {
+            add(LockScreenIssue("overlay", "Display over other apps", "Lets the call screen start while the phone is locked or asleep"))
+        }
+        if (isLikelyMiui()) {
+            val lock = miuiShowOnLockScreenAllowed(context)
+            val bg = miuiBackgroundStartAllowed(context)
+            val confirmed = isMiuiConfirmedByUser(context)
+            // A confirmed "true" never shows; an unknown (null) shows until the person says they turned it on.
+            if (lock == false || (lock == null && !confirmed)) {
+                add(LockScreenIssue("miui", "Show on lock screen", "Xiaomi: turn this on in the app's permission list"))
+            }
+            if (bg == false || (bg == null && !confirmed)) {
+                add(LockScreenIssue("miui", "Display pop-up windows while running in the background", "Xiaomi: turn this on in the app's permission list"))
+            }
+        }
+    }.distinctBy { it.title }
+
+    /** Opens the exact settings page for one issue returned by [lockScreenIssues]. */
+    fun openLockScreenIssue(context: Context, id: String): Boolean = when (id) {
+        "fsi" -> openFullScreenIntentSettings(context)
+        "overlay" -> openOverlaySettings(context)
+        else -> openMiuiPermissionEditor(context)
+    }
+
+    /** MIUI's own per-app permission list (the page with "Show on lock screen" and the pop-up switch). */
+    fun openMiuiPermissionEditor(context: Context): Boolean {
+        val pkg = context.packageName
+        val candidates = listOf(
+            Intent("miui.intent.action.APP_PERM_EDITOR")
+                .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                .putExtra("extra_pkgname", pkg),
+            Intent("miui.intent.action.APP_PERM_EDITOR")
+                .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.AppPermissionsEditorActivity")
+                .putExtra("extra_pkgname", pkg),
+            Intent("miui.intent.action.APP_PERM_EDITOR")
+                .setPackage("com.miui.securitycenter")
+                .putExtra("extra_pkgname", pkg),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", pkg, null))
+        )
+        for (intent in candidates) {
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return true
+            } catch (_: Exception) { /* try the next page */ }
+        }
+        return false
+    }
+
     /**
      * Whether this app may pop the incoming-call screen over the lock screen.
      *

@@ -554,6 +554,27 @@ class PixelInCallService : InCallService() {
         }
     }
 
+    /**
+     * Turns the display on for a ringing call. SCREEN_BRIGHT + ACQUIRE_CAUSES_WAKEUP is deprecated but is
+     * still the one thing that reliably wakes the screen from a service on every ROM. The lock releases by
+     * itself after a few seconds, and the call Activity keeps the screen on afterwards (FLAG_KEEP_SCREEN_ON).
+     */
+    @Suppress("DEPRECATION")
+    private fun wakeScreenForIncomingCall() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager ?: return
+            val lock = pm.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                    android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                    android.os.PowerManager.ON_AFTER_RELEASE,
+                "AshuDialer:IncomingCallWake"
+            )
+            lock.acquire(8_000L)
+        } catch (e: Throwable) {
+            Log.w(TAG, "wakeScreenForIncomingCall failed", e)
+        }
+    }
+
     private fun launchInCallUi(call: Call? = currentCall) {
         val number = call?.details?.handle?.schemeSpecificPart ?: "Unknown"
         val carrierName = call?.details?.callerDisplayName?.takeIf { it.isNotBlank() }
@@ -584,6 +605,11 @@ class PixelInCallService : InCallService() {
             } else {
                 true
             }
+
+            // A sleeping phone must actually light up. The full-screen notification does that on stock Android,
+            // but Xiaomi and some other ROMs turn it into a silent notification, so the screen is also woken here
+            // directly (a short wake lock that releases itself).
+            if (!screenInteractive) wakeScreenForIncomingCall()
 
             if (!notificationsEnabled || !fullScreenAllowed || !screenInteractive || deviceLocked) {
                 val intent = Intent(this, InCallActivity::class.java).apply {

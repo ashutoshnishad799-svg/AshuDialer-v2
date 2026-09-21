@@ -80,12 +80,12 @@ fun PermissionsScreen(
 
     // Full-screen-intent state is re-read whenever the screen resumes, since
     // the switch lives in system Settings and changes outside this screen.
-    var fullScreenOk by remember { mutableStateOf(OemPermissionHelper.canUseFullScreenIntent(context)) }
+    var lockIssues by remember { mutableStateOf(OemPermissionHelper.lockScreenIssues(context)) }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                fullScreenOk = OemPermissionHelper.canUseFullScreenIntent(context)
+                lockIssues = OemPermissionHelper.lockScreenIssues(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -193,8 +193,10 @@ fun PermissionsScreen(
                 )
             }
 
-            // Optional row, only when there is something to fix.
-            if (!fullScreenOk) {
+            // Calls on the lock screen: one card listing exactly what is still switched off (screen does not turn
+            // on for a call, the call shows as a small notification, answering asks for the PIN). Optional - it never
+            // blocks finishing setup - and it disappears by itself once everything is on.
+            if (lockIssues.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 StaggeredRow(visible = show, delayMillis = 180) {
                     Column(
@@ -213,21 +215,36 @@ fun PermissionsScreen(
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("Calls on the lock screen", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
-                                Text("Optional", fontSize = 12.sp, color = palette.textSecondary)
+                                Text("Recommended", fontSize = 12.sp, color = palette.textSecondary)
                             }
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "\"Full screen notifications\" is off for Ashu Dialer, so a call on a locked phone shows only a small banner " +
-                                "instead of the full call screen. Turn it on to see the full screen.",
+                            "Turn these on so an incoming call lights up the screen, opens full screen, and can be answered without your PIN:",
                             fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
                         )
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = { OemPermissionHelper.openFullScreenIntentSettings(context) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Open setting")
+                        Spacer(Modifier.height(6.dp))
+                        lockIssues.forEach { issue ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(issue.title, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
+                                    Text(issue.hint, fontSize = 11.5.sp, color = palette.textSecondary, lineHeight = 15.sp)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                OutlinedButton(onClick = { OemPermissionHelper.openLockScreenIssue(context, issue.id) }) { Text("Open") }
+                            }
+                        }
+                        if (OemPermissionHelper.isLikelyMiui() && lockIssues.any { it.id == "miui" }) {
+                            Spacer(Modifier.height(4.dp))
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    OemPermissionHelper.confirmMiuiPermissions(context)
+                                    lockIssues = OemPermissionHelper.lockScreenIssues(context)
+                                }
+                            ) { Text("I've turned the Xiaomi ones on") }
                         }
                     }
                 }

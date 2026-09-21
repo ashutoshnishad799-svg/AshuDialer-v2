@@ -223,6 +223,11 @@ class InCallActivity : ComponentActivity() {
 
             var call by remember { mutableStateOf(PixelInCallService.currentCall) }
             var callState by remember { mutableStateOf(call?.state) }
+            // True once a call object has been on this screen. When the call later disappears it has ENDED, which
+            // must close the screen at once. Without this it fell into the "Connecting call... waiting for the phone
+            // service" placeholder (meant only for the first moments of a NEW call) and sat there until the hand-off
+            // timeout ran out - the "Connecting screen shows when I end a call" bug.
+            var everHadCall by remember { mutableStateOf(call != null) }
             var hasSecondCall by remember { mutableStateOf(PixelInCallService.hasMultipleCalls) }
             var canMergeCalls by remember { mutableStateOf(PixelInCallService.canMergeCalls()) }
             var canSwapCalls by remember { mutableStateOf(PixelInCallService.canSwapCalls()) }
@@ -397,7 +402,7 @@ class InCallActivity : ComponentActivity() {
             // watchdog is gone; the person can always tap End call themselves.
 
             LaunchedEffect(callState) {
-                if (callState == Call.STATE_DISCONNECTED) {
+                if (callState == Call.STATE_DISCONNECTED || callState == Call.STATE_DISCONNECTING) {
                     // THE ACTUAL FIX for the black screen after a call ends:
                     // this used to call app.callRecorder.stop() and AWAIT it
                     // (a plain blocking function, not a suspend function)
@@ -468,7 +473,12 @@ class InCallActivity : ComponentActivity() {
                 // because the first composition happened before the service
                 // listener populated currentCall; that race made the custom
                 // screen disappear and left the stock dialer UI on some OEMs.
-                if (call == null) {
+                if (call != null) {
+                    everHadCall = true
+                } else if (everHadCall) {
+                    Log.i("InCallActivity", "call object is gone after being shown - the call ended, closing UI immediately")
+                    closeCallUiImmediately()
+                } else {
                     // The call Activity is only a presentation surface; it is
                     // never allowed to become a permanent waiting screen. If
                     // Telecom has not handed us a Call inside this short OEM
@@ -507,7 +517,6 @@ class InCallActivity : ComponentActivity() {
                 if (pendingAutoAnswer && call != null && callState == Call.STATE_RINGING) {
                     val current = call ?: return@LaunchedEffect
                     consumeAutoAnswer()
-                    dismissKeyguardForCall()
                     current.answer(answerVideoStateFor(current))
                     logCallAsync(
                         app,
@@ -813,7 +822,6 @@ class InCallActivity : ComponentActivity() {
                                 style = settings.incomingCallStyle,
                                 glass = settings.incomingCallGlass,
                                 onAccept = {
-                                    dismissKeyguardForCall()
                                     current.answer(answerVideoStateFor(current))
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)
                                 },
@@ -1130,46 +1138,11 @@ class InCallActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Asks the system to dismiss the keyguard so that, after tapping Answer on
-     * a locked phone, the person lands straight in the call instead of being
-     * sent to the PIN / pattern / fingerprint screen first.
-     *
-     * setShowWhenLocked(true) only lets this Activity be DRAWN above the lock
-     * screen. It does not unlock anything, which is why the call could ring on
-     * the lock screen but then demand the password on Answer. Since Android 8
-     * the supported way to drop the keyguard for an Activity that is on screen
-     * is KeyguardManager.requestDismissKeyguard(). For an incoming call the
-     * platform lets a call-handling default dialer do this without a prompt
-     * (the "answer over the lock screen" behaviour every stock dialer has).
-     * If the device refuses (e.g. secure lock + no biometric grant), the
-     * callback reports it and the call simply stays on the lock-screen UI -
-     * the call itself is never affected.
-     */
-    private fun dismissKeyguardForCall() {
-        try {
-            val km = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager ?: return
-            if (!km.isKeyguardLocked) return
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
-                    override fun onDismissError() {
-                        Log.w("InCallActivity", "requestDismissKeyguard: dismiss error")
-                    }
-                    override fun onDismissSucceeded() {
-                        Log.i("InCallActivity", "requestDismissKeyguard: dismissed")
-                    }
-                    override fun onDismissCancelled() {
-                        Log.i("InCallActivity", "requestDismissKeyguard: cancelled")
-                    }
-                })
-            } else {
-                @Suppress("DEPRECATION")
-                window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
-            }
-        } catch (t: Throwable) {
-            Log.w("InCallActivity", "dismissKeyguardForCall failed", t)
-        }
-    }
+    // NOTE: there used to be a dismissKeyguardForCall() here that called KeyguardManager.requestDismissKeyguard()
+    // when the person answered. On a phone with a PIN / pattern / fingerprint lock that call OPENS the unlock
+    // screen, which is exactly the "I answer and it asks for my password" bug. A stock dialer never does this: the
+    // call screen is drawn ABOVE the lock screen (setShowWhenLocked + setTurnScreenOn, set in
+    // setupLockScreenAndWakeFlags) and the call is answered and talked through without unlocking anything.
 
     private fun setupLockScreenAndWakeFlags(disableProximitySensor: Boolean) {
         // These flags are deliberately applied to the real call activity, not

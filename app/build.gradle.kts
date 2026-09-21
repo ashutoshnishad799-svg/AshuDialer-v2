@@ -74,8 +74,8 @@ android {
         applicationId = "com.ashudialer.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.6.0"
+        versionCode = 11
+        versionName = "1.6.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -121,6 +121,10 @@ android {
         // The old "normal" flavor had this false, which is exactly why a plain install showed no
         // Recordings screen at all. Kept as a BuildConfig field so existing call sites keep working.
         buildConfigField("boolean", "CALL_RECORDING_ENABLED", "true")
+        // SHA-256 of the OFFICIAL release signing certificate, passed in by CI (-PASHU_CERT_SHA256=...). The app compares
+        // it with the certificate it is actually signed with (see IntegrityGuard). Empty on local / debug builds, where
+        // the check is skipped, so building on your own machine still works.
+        buildConfigField("String", "EXPECTED_CERT_SHA256", "\"${(project.findProperty("ASHU_CERT_SHA256") as String?)?.trim().orEmpty()}\"")
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
