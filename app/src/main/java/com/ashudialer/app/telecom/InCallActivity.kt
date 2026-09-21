@@ -333,6 +333,7 @@ class InCallActivity : ComponentActivity() {
             DisposableEffect(Unit) { onDispose { dtmfPlayer.release() } }
             fun sendDtmf(digit: Char) {
                 dtmfPlayer.play(digit)
+                PixelInCallService.rememberTypedDtmf(digit)
                 val active = PixelInCallService.currentCall ?: return
                 try {
                     active.playDtmfTone(digit)
@@ -518,10 +519,12 @@ class InCallActivity : ComponentActivity() {
                     val current = call ?: return@LaunchedEffect
                     consumeAutoAnswer()
                     current.answer(answerVideoStateFor(current))
+                    val loggedNumber = current.details?.handle?.schemeSpecificPart ?: "Unknown"
+                    val savedName = if (loggedNumber != "Unknown") app.contactsRepository.lookupNameForNumber(loggedNumber)?.displayName else null
                     logCallAsync(
                         app,
-                        current.details?.handle?.schemeSpecificPart ?: "Unknown",
-                        current.details?.callerDisplayName ?: current.details?.handle?.schemeSpecificPart ?: "Unknown",
+                        loggedNumber,
+                        savedName ?: current.details?.callerDisplayName ?: loggedNumber,
                         CallDirection.INCOMING
                     )
                 }
@@ -745,11 +748,27 @@ class InCallActivity : ComponentActivity() {
                     // an incoming call from a saved contact still showed
                     // whatever label the SIM/carrier reported instead of the
                     // name actually saved for that number.
-                    val resolvedName = localContactMatch?.displayName ?: rawCallerDisplayName
+                    // A saved contact's name always wins. The carrier's caller-ID name is used ONLY for a number that is not
+                    // saved, and only once the lookup has finished; until then the number is shown. Before, the carrier name
+                    // was shown first and swapped for the saved name a moment later (or never, if the lookup was slow).
+                    val resolvedName = when {
+                        localContactMatch != null -> localContactMatch?.displayName
+                        contactLookupDone -> rawCallerDisplayName
+                        else -> null
+                    }
                     val displayName = resolvedName ?: number
                     val secondary = PixelInCallService.secondaryCall
                     val secondaryNumber = secondary?.details?.handle?.schemeSpecificPart.orEmpty()
-                    val secondaryName = secondary?.details?.callerDisplayName?.takeIf { it.isNotBlank() }
+                    var secondarySaved by remember(secondaryNumber) { mutableStateOf<String?>(null) }
+                    var secondaryLookupDone by remember(secondaryNumber) { mutableStateOf(false) }
+                    LaunchedEffect(secondaryNumber) {
+                        secondarySaved = if (secondaryNumber.isNotBlank()) {
+                            app.contactsRepository.lookupNameForNumber(secondaryNumber)?.displayName
+                        } else null
+                        secondaryLookupDone = true
+                    }
+                    val secondaryName = secondarySaved
+                        ?: (if (secondaryLookupDone) secondary?.details?.callerDisplayName?.takeIf { it.isNotBlank() } else null)
                         ?: secondaryNumber.takeIf { it.isNotBlank() }
                     val secondaryState = secondary?.state
 
@@ -906,6 +925,7 @@ class InCallActivity : ComponentActivity() {
                                 availableAudioRoutes = availableRoutes,
                                 currentAudioRoute = currentRoute,
                                 onDtmfDigit = { digit -> sendDtmf(digit) },
+                                initialDialedDigits = PixelInCallService.typedDtmfDigits(),
                                 onOpenNote = { showNoteDialog = true },
                                 onOpenVideoCall = if (app.authRepository.isSignedIn()) {
                                     {

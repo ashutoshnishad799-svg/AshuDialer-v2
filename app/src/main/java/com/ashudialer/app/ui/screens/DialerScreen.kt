@@ -249,13 +249,21 @@ fun DialerScreen(
     // Android's own Phone.CONTENT_URI - a row per number, not per person).
     // Previously only firstOrNull() was used, so a second matching number on
     // the same contact - or a second contact entirely - was silently hidden.
-    val matchedContacts = remember(number, contacts) {
+    // Every contact's number is normalised ONCE per contact list, not on every keystroke. It used to be redone for the whole
+    // list (often thousands of numbers) on the main thread each time a digit was typed, which made fast typing stutter: the
+    // key felt late and presses were drawn after the next one. Now a keystroke only compares strings.
+    val normalizedNumbers = remember(contacts) { contacts.map { normalizePhoneNumberForMatch(it.phoneNumber) } }
+    val matchedContacts = remember(number, contacts, normalizedNumbers) {
         if (number.length < 3) return@remember emptyList()
         val target = normalizePhoneNumberForMatch(number)
-        contacts.filter { c ->
-            val candidate = normalizePhoneNumberForMatch(c.phoneNumber)
-            candidate.isNotEmpty() && (candidate == target || candidate.contains(target) || target.contains(candidate))
+        val found = ArrayList<Contact>()
+        for (i in contacts.indices) {
+            val candidate = normalizedNumbers[i]
+            if (candidate.isNotEmpty() && (candidate == target || candidate.contains(target) || target.contains(candidate))) {
+                found.add(contacts[i])
+            }
         }
+        found
     }
     // Grouped by person, preserving the order matches were found in, so one
     // contact with multiple matching numbers renders as a single card
@@ -477,14 +485,17 @@ fun DialerScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 0.dp, vertical = keyVerticalPadding),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                        .padding(horizontal = 0.dp, vertical = keyVerticalPadding)
                 ) {
                     row.forEach { key ->
                         DialerKey(
                             key = key,
                             palette = palette,
                             size = keySize,
+                            // Each key owns an equal third of the row, so there is no dead gap between two keys: a touch
+                            // that lands a little to one side of a key still presses THAT key, which is what makes fast
+                            // typing forgiving.
+                            modifier = Modifier.weight(1f),
                             onPress = {
                                 insertAtCursor(key.digit)
                                 dtmfPlayer.play(key.digit.first())
@@ -803,11 +814,13 @@ private fun DialerKey(
     key: KeyDef,
     palette: com.ashudialer.app.ui.theme.DialerPalette,
     size: androidx.compose.ui.unit.Dp = 78.dp,
+    modifier: Modifier = Modifier,
     onPress: () -> Unit
 ) {
     // The digit is entered the moment the finger goes DOWN (and the tone and haptic start with it), exactly like a
-    // real keypad. It used to wait for the finger to LIFT (clickable), so every key felt a beat late, and it ran three
-    // bouncy springs at once (scale + two halos) that made the keys wobble after each tap.
+    // real keypad. The TOUCH area is the whole grid cell (an equal share of the row wide, the key plus its margin
+    // tall); the round key drawn inside it is only the visual. Cells touch each other, so there is nowhere between
+    // two keys where a tap is lost.
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.93f else 1f,
@@ -821,7 +834,21 @@ private fun DialerKey(
     )
     val fire = onPress
 
-    Box(Modifier.size(size + 10.dp), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .height(size + 10.dp)
+            .pointerInput(key) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        fire()
+                        tryAwaitRelease()
+                        pressed = false
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
         Box(
             modifier = Modifier
                 .size(size)
@@ -832,16 +859,6 @@ private fun DialerKey(
                     // Soft accent glow that lights up on touch-down and fades out on release.
                     drawCircle(color = palette.accent.copy(alpha = 0.20f * glow))
                     drawContent()
-                }
-                .pointerInput(key) {
-                    detectTapGestures(
-                        onPress = {
-                            pressed = true
-                            fire()
-                            tryAwaitRelease()
-                            pressed = false
-                        }
-                    )
                 },
             contentAlignment = Alignment.Center
         ) {

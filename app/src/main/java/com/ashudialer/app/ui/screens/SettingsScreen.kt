@@ -13,6 +13,9 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
@@ -24,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
@@ -66,6 +70,9 @@ fun SettingsScreen(
     quietHoursSubtitle: String = "Off",
     onOpenQuietHours: () -> Unit = {},
     onOpenMiuiAutostartSettings: (() -> Unit)? = null,
+    onFixPermissions: () -> Unit = {},
+    onFixDefaultDialer: () -> Unit = {},
+    onRequestBluetooth: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -105,26 +112,19 @@ fun SettingsScreen(
             item { Spacer(Modifier.height(4.dp)) }
 
             item {
-                SectionLabel("Incoming calls", palette)
-                SettingsCard(palette) { LockScreenCallsRow(palette) }
+                SectionLabel("Troubleshooting", palette)
+                Text(
+                    "Only if something is not working, for example calls do not light up the screen. Each line shows its state and opens the right place to fix it.",
+                    fontSize = 12.sp, color = palette.textSecondary, lineHeight = 16.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                SettingsCard(palette) {
+                    TroubleshootingRows(palette, onFixPermissions, onFixDefaultDialer, onRequestBluetooth)
+                }
                 Spacer(Modifier.height(20.dp))
             }
 
-            if (onOpenMiuiAutostartSettings != null) {
-                item {
-                    SectionLabel("System", palette)
-                    SettingsCard(palette) {
-                        NavRow(
-                            icon = Icons.Filled.FlashOn,
-                            title = "MIUI Autostart settings",
-                            subtitle = "Required so calls & notifications come from this app, not MIUI's dialer",
-                            palette = palette,
-                            onClick = onOpenMiuiAutostartSettings
-                        )
-                    }
-                    Spacer(Modifier.height(20.dp))
-                }
-            }
 
             item {
                 SectionLabel("Appearance", palette)
@@ -432,34 +432,55 @@ internal fun ToggleRow(
 
 
 /**
- * Shortcut to the "calls on the lock screen" settings. It lists what is still switched off (screen does not
- * wake for a call, the call shows as a small notification, answering asks for the PIN) and opens the right
- * page; the list refreshes when the person comes back from that page.
+ * Everything that is NOT needed to get started but fixes the usual "it does not work on my phone" problems, in one
+ * place. Each line shows whether it is on and opens the exact page where it can be changed; the states are re-read
+ * whenever the person comes back from that page.
  */
 @Composable
-private fun LockScreenCallsRow(palette: DialerPalette) {
+private fun TroubleshootingRows(
+    palette: DialerPalette,
+    onFixPermissions: () -> Unit,
+    onFixDefaultDialer: () -> Unit,
+    onRequestBluetooth: () -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var issues by remember {
-        mutableStateOf(com.ashudialer.app.telecom.OemPermissionHelper.lockScreenIssues(context))
-    }
+    var refresh by remember { mutableIntStateOf(0) }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                issues = com.ashudialer.app.telecom.OemPermissionHelper.lockScreenIssues(context)
-            }
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh += 1
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    NavRow(
-        icon = Icons.Filled.Phone,
-        title = "Calls on the lock screen",
-        subtitle = if (issues.isEmpty()) "All set. Calls light up the screen and open full screen"
-        else "Turn on: " + issues.joinToString(", ") { it.title },
-        palette = palette,
-        onClick = {
-            com.ashudialer.app.telecom.OemPermissionHelper.openLockScreenIssue(context, issues.firstOrNull()?.id ?: "fsi")
-        }
-    )
+    val oem = com.ashudialer.app.telecom.OemPermissionHelper
+    val perms = com.ashudialer.app.telecom.DialerPermissions
+    val hasPhone = remember(refresh) { perms.hasAll(context) }
+    val isDefault = remember(refresh) { perms.isDefaultDialer(context) }
+    val fullScreenOk = remember(refresh) { oem.canUseFullScreenIntent(context) }
+    val miui = oem.isLikelyMiui()
+    val miuiLock = remember(refresh) { oem.miuiShowOnLockScreenAllowed(context) }
+    val miuiBg = remember(refresh) { oem.miuiBackgroundStartAllowed(context) }
+    val needsBluetooth = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val bluetoothOk = remember(refresh) {
+        !needsBluetooth || perms.isGranted(context, android.Manifest.permission.BLUETOOTH_CONNECT)
+    }
+
+    fun state(ok: Boolean?, on: String = "On", off: String = "Off. Tap to fix", unknown: String = "Tap to check") =
+        when (ok) { true -> on; false -> off; null -> unknown }
+
+    NavRow(Icons.Filled.Phone, "Phone and call access", state(hasPhone, on = "Allowed"), palette, onFixPermissions)
+    NavRow(Icons.Filled.Call, "Default dialer", state(isDefault, on = "Ashu Dialer is the default"), palette, onFixDefaultDialer)
+    NavRow(Icons.Filled.Lock, "Full screen calls", state(fullScreenOk, off = "Off. Turn on so a call can open over the lock screen"), palette) {
+        oem.openFullScreenIntentSettings(context)
+    }
+    if (miui) {
+        NavRow(Icons.Filled.Settings, "Xiaomi: Show on Lock screen", state(miuiLock), palette) { oem.openMiuiPermissionEditor(context) }
+        NavRow(Icons.Filled.Settings, "Xiaomi: Open new windows while running in the background", state(miuiBg), palette) { oem.openMiuiPermissionEditor(context) }
+        NavRow(Icons.Filled.Settings, "Xiaomi: Autostart", "Tap to check", palette) { oem.openMiuiAutostartSettings(context) }
+    }
+    if (needsBluetooth) {
+        NavRow(Icons.Filled.Settings, "Bluetooth headset audio", state(bluetoothOk, on = "Allowed", off = "Off. Tap to allow"), palette, onRequestBluetooth)
+    }
+    NavRow(Icons.Filled.Build, "Battery: keep running in background", "Tap to check", palette) { oem.openAppBatterySettings(context) }
 }

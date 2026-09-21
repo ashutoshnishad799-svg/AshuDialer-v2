@@ -28,6 +28,14 @@ import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import kotlin.math.roundToInt
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.animation.core.Animatable
 import kotlin.math.abs
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
@@ -66,21 +73,38 @@ enum class DialerTab(val label: String) {
 private val NavCellHeight = 56.dp
 
 /**
- * The bottom bar. A frosted "glass" pill slides under the selected tab, and it FOLLOWS the finger while the
- * pages are being swiped: [position] is the live pager position (0.0 = first tab, 1.0 = second, 1.5 = halfway
- * between the second and third ...). Tapping a tab slides the pill there and the page follows. Icons and labels
- * fade from grey to the accent colour as the pill reaches them, so nothing snaps.
- *
- * [position] is a lambda so the pill itself moves without recomposing the bar on every frame.
+ * The bottom bar. A frosted "glass" pill sits under the selected tab. Tap a tab and the pill glides there. Put a
+ * finger on the bar and slide it left or right and the pill follows the finger, the tab under it is selected as it
+ * passes (so the screen above switches with its slide animation), and on release it settles on the nearest tab.
+ * Only THIS bar reacts to sliding; the pages themselves do not swipe.
  */
 @Composable
 fun DialerBottomNav(
     selected: DialerTab,
-    onSelect: (DialerTab) -> Unit,
-    position: () -> Float = { selected.ordinal.toFloat() }
+    onSelect: (DialerTab) -> Unit
 ) {
     val palette = LocalDialerPalette.current
     val tabs = DialerTab.values()
+    val currentOnSelect by rememberUpdatedState(onSelect)
+
+    // Pill position in tab units (0.0 = first tab ... 4.0 = last). NaN while no finger is dragging.
+    var dragPosition by remember { mutableFloatStateOf(Float.NaN) }
+    var lastDragPosition by remember { mutableFloatStateOf(selected.ordinal.toFloat()) }
+    var pressedIndex by remember { mutableIntStateOf(-1) }
+    val glide = remember { Animatable(selected.ordinal.toFloat()) }
+    val dragging = !dragPosition.isNaN()
+
+    LaunchedEffect(selected) {
+        if (!dragging) glide.animateTo(selected.ordinal.toFloat(), spring(dampingRatio = 0.78f, stiffness = 420f))
+    }
+    LaunchedEffect(dragging) {
+        if (!dragging) {
+            // The finger lifted: carry on from where the pill was left instead of jumping back to the old tab.
+            glide.snapTo(lastDragPosition)
+            glide.animateTo(selected.ordinal.toFloat(), spring(dampingRatio = 0.78f, stiffness = 420f))
+        }
+    }
+    val position: () -> Float = { if (dragPosition.isNaN()) glide.value else dragPosition }
 
     Box(
         modifier = Modifier
@@ -90,7 +114,49 @@ fun DialerBottomNav(
             .liquidGlass(palette = palette, shape = RoundedCornerShape(28.dp), tintAlpha = 0.9f)
             .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
-        BoxWithConstraints(Modifier.fillMaxWidth().height(NavCellHeight)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .height(NavCellHeight)
+                .pointerInput(tabs.size) {
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val cellW = size.width / tabs.size.toFloat()
+                        fun indexAt(x: Float) = (x / cellW).toInt().coerceIn(0, tabs.size - 1)
+                        fun pillAt(x: Float) = (x / cellW - 0.5f).coerceIn(0f, (tabs.size - 1).toFloat())
+                        pressedIndex = indexAt(down.position.x)
+                        var dragged = false
+                        var lastIndex = -1
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                // A plain tap (no slide): select the tab that was touched.
+                                if (!dragged) currentOnSelect(tabs[indexAt(change.position.x)])
+                                break
+                            }
+                            if (!dragged && abs(change.position.x - down.position.x) > slop) {
+                                dragged = true
+                                pressedIndex = -1
+                            }
+                            if (dragged) {
+                                change.consume()
+                                val p = pillAt(change.position.x)
+                                dragPosition = p
+                                lastDragPosition = p
+                                val idx = p.roundToInt().coerceIn(0, tabs.size - 1)
+                                if (idx != lastIndex) {
+                                    lastIndex = idx
+                                    currentOnSelect(tabs[idx])
+                                }
+                            }
+                        }
+                        pressedIndex = -1
+                        dragPosition = Float.NaN
+                    }
+                }
+        ) {
             val cellW = maxWidth / tabs.size
             val cellWpx = with(LocalDensity.current) { cellW.toPx() }
 
@@ -115,10 +181,10 @@ fun DialerBottomNav(
                     NavTabItem(
                         tab = tab,
                         index = index,
+                        pressed = pressedIndex == index,
                         position = position,
                         palette = palette,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onSelect(tab) }
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -130,12 +196,11 @@ fun DialerBottomNav(
 private fun NavTabItem(
     tab: DialerTab,
     index: Int,
+    pressed: Boolean,
     position: () -> Float,
     palette: DialerPalette,
-    modifier: Modifier,
-    onClick: () -> Unit
+    modifier: Modifier
 ) {
-    var pressed by remember { mutableStateOf(false) }
     val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else 1f,
         animationSpec = tween(if (pressed) 60 else 140),
@@ -149,17 +214,7 @@ private fun NavTabItem(
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
-            .pointerInput(tab) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            },
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

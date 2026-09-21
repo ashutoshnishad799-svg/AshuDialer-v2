@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate as rotateCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.telecom.AudioRoute
@@ -94,6 +95,7 @@ fun CallScreen(
     availableAudioRoutes: List<AudioRoute> = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER),
     currentAudioRoute: AudioRoute = AudioRoute.EARPIECE,
     onDtmfDigit: (Char) -> Unit = {},
+    initialDialedDigits: String = "",
     onOpenNote: () -> Unit = {},
     onOpenVideoCall: (() -> Unit)? = null,
     // Non-null only when this call's own carrier/network already
@@ -131,10 +133,10 @@ fun CallScreen(
     var state by remember { mutableStateOf(CallUiState.CONNECTING) }
     var showKeypad by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
-    // Digits the person has typed on the in-call keypad (sent as tones). Shown above the keys so they can
-    // see what they entered, like a normal dialer; cleared when the keypad is closed.
-    var dialedDigits by remember { mutableStateOf("") }
-    LaunchedEffect(showKeypad) { if (!showKeypad) dialedDigits = "" }
+    // Digits the person has typed on the in-call keypad (sent as tones), shown above the keys for the WHOLE call, from the
+    // first digit to the last. Closing and reopening the keypad does not clear them (they used to vanish on close); the
+    // full history lives in PixelInCallService, so it also survives the screen being rebuilt.
+    var dialedDigits by remember { mutableStateOf(initialDialedDigits) }
 
     // THE FIX for "call duration resets to 0 when returning to the app
     // after switching to another task": seconds used to be a plain
@@ -445,7 +447,7 @@ fun CallScreen(
                             palette = palette,
                             digits = dialedDigits,
                             onDigit = { d ->
-                                if (dialedDigits.length < 40) dialedDigits += d
+                                dialedDigits = (dialedDigits + d).takeLast(60)
                                 onDtmfDigit(d)
                             }
                         )
@@ -826,19 +828,26 @@ private fun InCallKeypad(
             if (digits.isEmpty()) {
                 Text("Tap keys to send tones", fontSize = 13.sp, color = palette.textSecondary.copy(alpha = 0.7f))
             } else {
+                // Everything typed is shown; a long sequence shrinks and wraps to a second line instead of being cut off.
                 Text(
-                    digits.takeLast(20),
-                    fontSize = 26.sp,
+                    digits,
+                    fontSize = when {
+                        digits.length <= 12 -> 26.sp
+                        digits.length <= 24 -> 19.sp
+                        else -> 14.sp
+                    },
                     fontWeight = FontWeight.Medium,
-                    letterSpacing = 2.sp,
+                    letterSpacing = 1.5.sp,
                     color = palette.textPrimary,
-                    maxLines = 1
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp,
+                    maxLines = 2
                 )
             }
         }
         rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
-                row.forEach { digit -> KeypadDigit(digit, palette, onDigit) }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                row.forEach { digit -> KeypadDigit(digit, palette, onDigit, Modifier.weight(1f)) }
             }
         }
     }
@@ -850,7 +859,7 @@ private fun InCallKeypad(
  * highlight instead of the old slow, bouncy spring.
  */
 @Composable
-private fun KeypadDigit(digit: Char, palette: DialerPalette, onDigit: (Char) -> Unit) {
+private fun KeypadDigit(digit: Char, palette: DialerPalette, onDigit: (Char) -> Unit, modifier: Modifier = Modifier) {
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.90f else 1f,
@@ -862,12 +871,11 @@ private fun KeypadDigit(digit: Char, palette: DialerPalette, onDigit: (Char) -> 
         animationSpec = tween(if (pressed) 40 else 220),
         label = "keypadDigitGlow"
     )
+    // The touch area is the whole cell (an equal share of the row wide, 64dp tall) and the cells touch, so a tap that lands
+    // a little beside a digit still presses that digit. The round highlight is only the visual.
     Box(
-        modifier = Modifier
-            .size(58.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(CircleShape)
-            .background(palette.accent.copy(alpha = glow))
+        modifier = modifier
+            .height(64.dp)
             .pointerInput(digit) {
                 detectTapGestures(
                     onPress = {
@@ -880,7 +888,16 @@ private fun KeypadDigit(digit: Char, palette: DialerPalette, onDigit: (Char) -> 
             },
         contentAlignment = Alignment.Center
     ) {
-        Text(digit.toString(), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Light)
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(CircleShape)
+                .background(palette.accent.copy(alpha = glow)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(digit.toString(), color = palette.textPrimary, fontSize = 24.sp, fontWeight = FontWeight.Light)
+        }
     }
 }
 

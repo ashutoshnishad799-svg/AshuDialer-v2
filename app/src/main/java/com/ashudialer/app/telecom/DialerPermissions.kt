@@ -59,7 +59,9 @@ object DialerPermissions {
     }.toTypedArray()
 
     /** Everything requested together in one system permission batch. */
-    val required: Array<String> = core + optional
+    // What the setup screen asks for: ONLY the essentials. Camera is asked when a video call starts, and Bluetooth is
+    // offered from Settings > Troubleshooting, so a first-time user is not shown prompts that look unrelated to calling.
+    val required: Array<String> = core
 
     fun hasAll(context: Context): Boolean =
         core.all {

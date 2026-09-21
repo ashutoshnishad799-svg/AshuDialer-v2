@@ -324,7 +324,11 @@ object CallNotificationHelper {
 
             val builder = NotificationCompat.Builder(context, AshuDialerApp.CHANNEL_ONGOING_CALL)
                 .setSmallIcon(R.drawable.ic_ongoing_call_notification)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                // Show the caller and the Hang up button on the lock screen, not just "Sensitive content hidden".
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOnlyAlertOnce(true)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)

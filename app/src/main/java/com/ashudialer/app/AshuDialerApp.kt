@@ -233,17 +233,24 @@ class AshuDialerApp : Application() {
                 }
             )
 
+            // The ongoing-call notification is what shows on the lock screen and in the shade while a call is running, and
+            // what carries the Hang up button. It used to sit in a LOW-importance channel, and many phones (Xiaomi / HyperOS
+            // in particular, and Android's "show alerting notifications only" lock-screen mode) hide LOW ("silent")
+            // notifications from the lock screen, so an active call left nothing there. It is now DEFAULT importance (still
+            // no sound and no vibration) and explicitly public on the lock screen. Android never lets an app raise the
+            // importance of a channel that already exists, so this is a NEW channel id and the old one is removed.
+            manager.deleteNotificationChannel(LEGACY_CHANNEL_ONGOING_CALL)
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ONGOING_CALL,
                     "Ongoing call",
-
-
-                    NotificationManager.IMPORTANCE_LOW
+                    NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "Shows the active call notification"
+                    description = "Shows the active call, with a Hang up button, on the lock screen and in the notification shade"
                     setSound(null, null)
                     enableVibration(false)
+                    setShowBadge(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
             )
 
@@ -280,7 +287,8 @@ class AshuDialerApp : Application() {
     }
 
     companion object {
-        const val CHANNEL_ONGOING_CALL = "ongoing_call_channel"
+        const val CHANNEL_ONGOING_CALL = "ongoing_call_channel_v2"
+        private const val LEGACY_CHANNEL_ONGOING_CALL = "ongoing_call_channel"
         const val CHANNEL_CALLBACK_REMINDERS = "callback_reminder_channel"
         const val CHANNEL_MISSED_CALL = "missed_call_channel"
     }

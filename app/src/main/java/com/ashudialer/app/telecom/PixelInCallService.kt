@@ -27,6 +27,17 @@ class PixelInCallService : InCallService() {
         var instance: PixelInCallService? = null
             private set
 
+        // Keypad digits typed during the current call, kept here (not in the screen) so they survive the keypad being
+        // closed and reopened, the screen being rebuilt, and switching to another app and back. Cleared when the call ends.
+        @Volatile
+        private var typedDtmf: String = ""
+
+        fun typedDtmfDigits(): String = typedDtmf
+
+        fun rememberTypedDtmf(digit: Char) {
+            typedDtmf = (typedDtmf + digit).takeLast(60)
+        }
+
         /** Latest Telecom-confirmed audio state for notification/actions. */
         @Volatile
         var callAudioState: android.telecom.CallAudioState? = null
@@ -192,6 +203,7 @@ class PixelInCallService : InCallService() {
         _nativeVideoUpgradeActive.value = false
         PixelInCallService.callAudioState = null
         resolvedContactNames.clear()
+        lookupFinishedNumbers.clear()
         loggedAsMissed.clear()
         loggedAsAnswered.clear()
         notifyListeners()
@@ -369,6 +381,8 @@ class PixelInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         Log.d(TAG, "Call added: ${call.details.handle}, state=${call.state}, totalCalls=${_allCalls.size + 1}")
+        // A call that starts while no other call is live is a fresh call: forget the last one's typed digits.
+        if (_allCalls.none { it !== call && it.state != Call.STATE_DISCONNECTED }) typedDtmf = ""
         _allCalls.removeAll { existing -> existing === call || existing.state == Call.STATE_DISCONNECTED }
         _allCalls.add(call)
         call.registerCallback(callCallback)
@@ -386,8 +400,9 @@ class PixelInCallService : InCallService() {
         if (isIncoming) {
             vibrateForIncomingCall(number)
             try {
+                startContactLookup(call, number)
                 val carrierName = call.details?.callerDisplayName?.takeIf { it.isNotBlank() }
-                val displayName = resolvedContactNames[number] ?: carrierName ?: number
+                val displayName = nameForCall(number, carrierName)
                 CallNotificationHelper.showIncomingCallNotification(
                     applicationContext, displayName, number, latestSettings.ledFlashForAlerts
                 )
@@ -405,6 +420,7 @@ class PixelInCallService : InCallService() {
         _allCalls.remove(call)
         notifyListeners()
         if (_allCalls.none { it.state != Call.STATE_DISCONNECTED }) {
+            typedDtmf = ""
             PixelInCallService.callAudioState = null
             _currentAudioRoute.value = AudioRoute.EARPIECE
             _availableAudioRoutes.value = listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER)
@@ -420,26 +436,41 @@ class PixelInCallService : InCallService() {
 
     private val resolvedContactNames = mutableMapOf<String, String?>()
 
+    // Numbers whose saved-contact lookup has FINISHED (found or not). Until a number is in here the carrier's caller-ID
+    // name must not be shown: "not looked up yet" and "looked up, not saved" both leave resolvedContactNames empty.
+    private val lookupFinishedNumbers = mutableSetOf<String>()
+
+    /**
+     * The one rule for which name a call shows: a SAVED contact's name always wins. The carrier's caller-ID name
+     * is used only for a number that is not saved, and only once we know that (the lookup finished). While the lookup
+     * is still running the number itself is shown, so the carrier name can never flash up for a saved contact.
+     */
+    private fun nameForCall(number: String, carrierName: String?): String {
+        resolvedContactNames[number]?.let { return it }
+        return if (number in lookupFinishedNumbers) (carrierName ?: number) else number
+    }
+
+    private fun startContactLookup(call: Call, number: String) {
+        if (number == "Unknown" || resolvedContactNames.containsKey(number)) return
+        resolvedContactNames[number] = null // in flight
+        val app = applicationContext as? AshuDialerApp ?: run { lookupFinishedNumbers.add(number); return }
+        serviceScope.launch {
+            val match = app.contactsRepository.lookupNameForNumber(number)?.displayName
+            resolvedContactNames[number] = match
+            lookupFinishedNumbers.add(number)
+            // Re-post either way: a saved name replaces the number, and for an unsaved number the carrier name
+            // (if there is one) replaces it.
+            handleStateForNotification(call, call.state)
+        }
+    }
+
     private fun handleStateForNotification(call: Call, state: Int) {
         val number = call.details?.handle?.schemeSpecificPart ?: "Unknown"
         val carrierName = call.details?.callerDisplayName?.takeIf { it.isNotBlank() }
-        val savedName = resolvedContactNames[number]
-        val name = savedName ?: carrierName ?: number
+        val name = nameForCall(number, carrierName)
         val isIncoming = call.details?.callDirection == Call.Details.DIRECTION_INCOMING
 
-        if (number != "Unknown" && !resolvedContactNames.containsKey(number)) {
-            resolvedContactNames[number] = null // mark in-flight so we don't re-query while waiting
-            val app = applicationContext as? AshuDialerApp
-            if (app != null) {
-                serviceScope.launch {
-                    val match = app.contactsRepository.lookupNameForNumber(number)?.displayName
-                    resolvedContactNames[number] = match
-                    if (match != null) {
-                        handleStateForNotification(call, call.state)
-                    }
-                }
-            }
-        }
+        startContactLookup(call, number)
 
         when (state) {
             Call.STATE_RINGING -> {
@@ -578,7 +609,7 @@ class PixelInCallService : InCallService() {
     private fun launchInCallUi(call: Call? = currentCall) {
         val number = call?.details?.handle?.schemeSpecificPart ?: "Unknown"
         val carrierName = call?.details?.callerDisplayName?.takeIf { it.isNotBlank() }
-        val name = resolvedContactNames[number] ?: carrierName ?: number
+        val name = nameForCall(number, carrierName)
         val isIncoming = call?.details?.callDirection == Call.Details.DIRECTION_INCOMING
 
         if (isIncoming) {

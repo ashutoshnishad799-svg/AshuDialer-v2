@@ -78,20 +78,6 @@ fun PermissionsScreen(
     // middle of first-time setup (there is no earlier step to return to).
     androidx.activity.compose.BackHandler(enabled = true) {}
 
-    // Full-screen-intent state is re-read whenever the screen resumes, since
-    // the switch lives in system Settings and changes outside this screen.
-    var lockIssues by remember { mutableStateOf(OemPermissionHelper.lockScreenIssues(context)) }
-    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                lockIssues = OemPermissionHelper.lockScreenIssues(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
     // Rows slide/fade in one after another instead of all appearing at once.
     var show by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { show = true }
@@ -193,93 +179,7 @@ fun PermissionsScreen(
                 )
             }
 
-            // Calls on the lock screen: one card listing exactly what is still switched off (screen does not turn
-            // on for a call, the call shows as a small notification, answering asks for the PIN). Optional - it never
-            // blocks finishing setup - and it disappears by itself once everything is on.
-            if (lockIssues.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                StaggeredRow(visible = show, delayMillis = 180) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassCard(palette, 16.dp)
-                            .padding(16.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier.size(38.dp).clip(CircleShape).background(palette.accentSoft),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Filled.Lock, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                            }
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Calls on the lock screen", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
-                                Text("Recommended", fontSize = 12.sp, color = palette.textSecondary)
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Turn these on so an incoming call lights up the screen, opens full screen, and can be answered without your PIN:",
-                            fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        lockIssues.forEach { issue ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(issue.title, fontSize = 13.5.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary)
-                                    Text(issue.hint, fontSize = 11.5.sp, color = palette.textSecondary, lineHeight = 15.sp)
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                OutlinedButton(onClick = { OemPermissionHelper.openLockScreenIssue(context, issue.id) }) { Text("Open") }
-                            }
-                        }
-                        if (OemPermissionHelper.isLikelyMiui() && lockIssues.any { it.id == "miui" }) {
-                            Spacer(Modifier.height(4.dp))
-                            androidx.compose.material3.TextButton(
-                                onClick = {
-                                    OemPermissionHelper.confirmMiuiPermissions(context)
-                                    lockIssues = OemPermissionHelper.lockScreenIssues(context)
-                                }
-                            ) { Text("I've turned the Xiaomi ones on") }
-                        }
-                    }
-                }
-            }
-
-            if (allDone && OemPermissionHelper.isLikelyMiui()) {
-                Spacer(Modifier.height(20.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(palette.accentSoft)
-                        .padding(16.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Warning, contentDescription = null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("One more step for MIUI / HyperOS", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "MIUI can keep sending calls to its own Phone app even after you set Ashu Dialer as default. " +
-                            "Turn on Autostart and remove battery restrictions for Ashu Dialer so calls, the lock-screen " +
-                            "call UI, and missed-call notifications come from this app instead of MIUI's.",
-                        fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
-                        onClick = onOpenMiuiAutostartSettings,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Open Autostart settings")
-                    }
-                }
-            }
+            // Everything else (lock-screen calls, Xiaomi switches, Bluetooth, battery) lives in Settings > Troubleshooting.
             Spacer(Modifier.height(16.dp))
         }
 

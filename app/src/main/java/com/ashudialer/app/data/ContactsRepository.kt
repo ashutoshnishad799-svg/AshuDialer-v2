@@ -80,19 +80,34 @@ class ContactsRepository(private val context: Context) {
             val projection = arrayOf(
                 ContactsContract.PhoneLookup._ID,
                 ContactsContract.PhoneLookup.DISPLAY_NAME,
-                ContactsContract.PhoneLookup.PHOTO_URI
+                ContactsContract.PhoneLookup.PHOTO_URI,
+                ContactsContract.PhoneLookup.STARRED
             )
             context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
+                // When two saved contacts share one number the provider returns them in no fixed order, so
+                // "the first row" could be a different person from one call to the next. Pick deterministically:
+                // a starred contact first, otherwise the oldest one (lowest id).
+                var best: Contact? = null
+                var bestStarred = false
+                var bestId = Long.MAX_VALUE
+                while (cursor.moveToNext()) {
                     val contactId = cursor.getString(0) ?: ""
-                    return@withContext Contact(
-                        id = "$contactId:$number",
-                        contactId = contactId,
-                        displayName = cursor.getString(1) ?: number,
-                        phoneNumber = number,
-                        photoUri = cursor.getString(2)
-                    )
+                    val idNum = contactId.toLongOrNull() ?: Long.MAX_VALUE
+                    val starred = cursor.getInt(3) == 1
+                    val better = best == null || (starred && !bestStarred) || (starred == bestStarred && idNum < bestId)
+                    if (better) {
+                        best = Contact(
+                            id = "$contactId:$number",
+                            contactId = contactId,
+                            displayName = cursor.getString(1) ?: number,
+                            phoneNumber = number,
+                            photoUri = cursor.getString(2)
+                        )
+                        bestStarred = starred
+                        bestId = idNum
+                    }
                 }
+                if (best != null) return@withContext best
             }
             null
         } catch (e: Exception) {

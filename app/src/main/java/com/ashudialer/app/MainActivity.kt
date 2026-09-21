@@ -21,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -32,7 +33,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -288,16 +288,6 @@ class MainActivity : ComponentActivity() {
             val onboardingComplete by app.onboardingPreference.isCompleteFlow.collectAsState(initial = null)
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             var selectedTab by remember { mutableStateOf(DialerTab.RECENT) }
-            // Swipe left / right between the five tabs. The bottom bar's glass pill follows the drag (DialerBottomNav).
-            val tabPagerState = androidx.compose.foundation.pager.rememberPagerState(initialPage = selectedTab.ordinal) {
-                DialerTab.values().size
-            }
-            LaunchedEffect(tabPagerState) {
-                androidx.compose.runtime.snapshotFlow { tabPagerState.currentPage }.collect { page ->
-                    val swipedTo = DialerTab.values()[page]
-                    if (swipedTo != selectedTab) selectedTab = swipedTo
-                }
-            }
             var recordingGuideOpenedFromSettings by remember { mutableStateOf(false) }
             // Which screen opened the recording guide, so Back returns THERE. It used to always return to the
             // Recordings list, so tapping the (?) button on Recording settings and pressing Back dropped the person
@@ -469,6 +459,19 @@ class MainActivity : ComponentActivity() {
                         } catch (e: Exception) {
                             Toast.makeText(context, "Couldn't read that file: ${e.message}", Toast.LENGTH_SHORT).show()
                         }
+                    }
+                }
+            }
+
+            // Bluetooth headset audio is offered from Settings > Troubleshooting, not at first launch. If the person has
+            // already refused it twice Android shows no dialog, so a refusal opens the app's own settings page instead.
+            val bluetoothLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (!granted) {
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
                     }
                 }
             }
@@ -967,14 +970,7 @@ class MainActivity : ComponentActivity() {
                         containerColor = Color.Transparent,
                         bottomBar = {
                             if (overlay == OverlayScreen.NONE && callHistoryPageContact == null && selectedContactForDetail == null && unknownNumberForDetail == null) {
-                                DialerBottomNav(
-                                    selected = selectedTab,
-                                    position = { tabPagerState.currentPage + tabPagerState.currentPageOffsetFraction },
-                                    onSelect = { tab ->
-                                        selectedTab = tab
-                                        scope.launch { tabPagerState.animateScrollToPage(tab.ordinal) }
-                                    }
-                                )
+                                DialerBottomNav(selected = selectedTab, onSelect = { selectedTab = it })
                             }
                         }
                     ) { padding ->
@@ -1028,30 +1024,30 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-                            HorizontalPager(
-                                state = tabPagerState,
+                            AnimatedContent(
+                                targetState = selectedTab,
                                 modifier = Modifier
                                     .weight(1f)
                                     .blockInteractionWhen(overlay != OverlayScreen.NONE || callHistoryPageContact != null || selectedContactForDetail != null || unknownNumberForDetail != null),
-                                // Swiping is off while any full-screen page or detail view is on top of the tabs.
-                                userScrollEnabled = !(overlay != OverlayScreen.NONE || callHistoryPageContact != null || selectedContactForDetail != null || unknownNumberForDetail != null)
-                            ) { page ->
-                                val tab = DialerTab.values()[page]
-                                // Pages sliding past each other fade and shrink very slightly, so the swipe reads as
-                                // depth (glass panes passing) rather than a flat cut.
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            val away = kotlin.math.abs(
-                                                (tabPagerState.currentPage - page) + tabPagerState.currentPageOffsetFraction
-                                            ).coerceIn(0f, 1f)
-                                            alpha = 1f - 0.45f * away
-                                            val shrink = 1f - 0.05f * away
-                                            scaleX = shrink
-                                            scaleY = shrink
-                                        }
-                                ) {
+                                // The screen slides and fades in the direction of travel: a tab to the right of the current
+                                // one arrives from the right. Sliding along the bottom bar crosses several tabs, and each
+                                // switch plays this animation, so the page follows the finger.
+                                transitionSpec = {
+                                    val forward = targetState.ordinal > initialState.ordinal
+                                    val distance = { fullWidth: Int -> fullWidth / 5 }
+                                    (fadeIn(tween(240)) +
+                                        slideInHorizontally(
+                                            animationSpec = tween(280, easing = FastOutSlowInEasing),
+                                            initialOffsetX = { w -> if (forward) distance(w) else -distance(w) }
+                                        )) togetherWith
+                                        (fadeOut(tween(140)) +
+                                            slideOutHorizontally(
+                                                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                                                targetOffsetX = { w -> if (forward) -distance(w) else distance(w) }
+                                            ))
+                                },
+                                label = "tab-content"
+                            ) { tab ->
                                 when (tab) {
                                     DialerTab.RECENT -> RecentsScreen(
                                         recents = recents,
@@ -1214,7 +1210,6 @@ class MainActivity : ComponentActivity() {
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     )
-                                }
                                 }
                             }
                             }
@@ -1515,9 +1510,19 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             } else "Off",
                                             onOpenQuietHours = { overlay = OverlayScreen.QUIET_HOURS },
-                                            onOpenMiuiAutostartSettings = if (com.ashudialer.app.telecom.OemPermissionHelper.isLikelyMiui()) {
-                                                { com.ashudialer.app.telecom.OemPermissionHelper.openMiuiAutostartSettings(context) }
-                                            } else null,
+                                            onFixPermissions = { permissionLauncher.launch(DialerPermissions.required) },
+                                            onFixDefaultDialer = {
+                                                try {
+                                                    defaultDialerLauncher.launch(DialerPermissions.requestDefaultDialerIntent(context))
+                                                } catch (_: Exception) {
+                                                    com.ashudialer.app.telecom.OemPermissionHelper.openDefaultAppsSettings(context)
+                                                }
+                                            },
+                                            onRequestBluetooth = {
+                                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                                                    bluetoothLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
+                                                }
+                                            },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.QUIET_HOURS -> QuietHoursScreen(
@@ -2137,6 +2142,7 @@ private fun ReturnToCallBanner(
     val context = LocalContext.current
     val number = call.details?.handle?.schemeSpecificPart ?: "Unknown"
     var resolvedName by remember(number) { mutableStateOf<String?>(null) }
+    var lookupDone by remember(number) { mutableStateOf(false) }
     LaunchedEffect(number) {
         val app = context.applicationContext as? com.ashudialer.app.AshuDialerApp
         resolvedName = if (app != null && number.isNotBlank() && number != "Unknown") {
@@ -2144,8 +2150,12 @@ private fun ReturnToCallBanner(
         } else {
             null
         }
+        lookupDone = true
     }
-    val callerLabel = call.details?.callerDisplayName?.takeIf { it.isNotBlank() } ?: resolvedName ?: number
+    // Saved name first; the carrier's caller-ID name only for a number that is not saved (after the lookup finished).
+    val callerLabel = resolvedName
+        ?: (if (lookupDone) call.details?.callerDisplayName?.takeIf { it.isNotBlank() } else null)
+        ?: number
     val statusLabel = when (call.state) {
         android.telecom.Call.STATE_RINGING -> "Incoming call"
         android.telecom.Call.STATE_HOLDING -> "On hold"

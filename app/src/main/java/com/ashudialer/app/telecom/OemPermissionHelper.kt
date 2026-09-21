@@ -90,18 +90,6 @@ object OemPermissionHelper {
     /** One thing that is switched off and stops calls from showing properly on the lock screen. */
     data class LockScreenIssue(val id: String, val title: String, val hint: String)
 
-    fun canDrawOverlays(context: Context): Boolean = try {
-        Settings.canDrawOverlays(context)
-    } catch (_: Throwable) { true }
-
-    fun openOverlaySettings(context: Context): Boolean = try {
-        context.startActivity(
-            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + context.packageName))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-        true
-    } catch (_: Exception) { openAppBatterySettings(context) }
-
     /**
      * Xiaomi / Redmi / POCO (MIUI, HyperOS) keep two of their own per-app switches that Android does not know
      * about. Without them MIUI turns a full-screen call into a plain notification, does not switch the screen
@@ -140,19 +128,16 @@ object OemPermissionHelper {
         if (!canUseFullScreenIntent(context)) {
             add(LockScreenIssue("fsi", "Full screen notifications", "Lets the call screen open over the lock screen"))
         }
-        if (!canDrawOverlays(context)) {
-            add(LockScreenIssue("overlay", "Display over other apps", "Lets the call screen start while the phone is locked or asleep"))
-        }
         if (isLikelyMiui()) {
             val lock = miuiShowOnLockScreenAllowed(context)
             val bg = miuiBackgroundStartAllowed(context)
             val confirmed = isMiuiConfirmedByUser(context)
             // A confirmed "true" never shows; an unknown (null) shows until the person says they turned it on.
             if (lock == false || (lock == null && !confirmed)) {
-                add(LockScreenIssue("miui", "Show on lock screen", "Xiaomi: turn this on in the app's permission list"))
+                add(LockScreenIssue("miui", "Show on Lock screen", "Xiaomi: turn this on in the app's permission list"))
             }
             if (bg == false || (bg == null && !confirmed)) {
-                add(LockScreenIssue("miui", "Display pop-up windows while running in the background", "Xiaomi: turn this on in the app's permission list"))
+                add(LockScreenIssue("miui", "Open new windows while running in the background", "Xiaomi: turn this on in the app's permission list"))
             }
         }
     }.distinctBy { it.title }
@@ -160,7 +145,6 @@ object OemPermissionHelper {
     /** Opens the exact settings page for one issue returned by [lockScreenIssues]. */
     fun openLockScreenIssue(context: Context, id: String): Boolean = when (id) {
         "fsi" -> openFullScreenIntentSettings(context)
-        "overlay" -> openOverlaySettings(context)
         else -> openMiuiPermissionEditor(context)
     }
 
