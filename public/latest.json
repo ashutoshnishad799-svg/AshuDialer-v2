@@ -1,0 +1,6 @@
+{
+  "versionCode": 12,
+  "versionName": "1.6.2",
+  "downloadUrl": "https://github.com/ashutoshnishad799-svg/AshuDialer-v2/releases/download/v1.6.2/AshuPhone-1.6.2.apk",
+  "releaseNotes": "Fewer permissions at setup (the rest are in Settings > Troubleshooting), saved contact name always shown for calls, bottom bar slide, keypad touch and typing fixes, ongoing call on the lock screen."
+}

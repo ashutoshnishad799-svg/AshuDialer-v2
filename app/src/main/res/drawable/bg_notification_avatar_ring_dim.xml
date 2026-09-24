@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Dim half of the incoming-call avatar's live-blinking ring — see
+    CallNotificationHelper.showIncomingCallNotification's pulse Handler
+    for how this alternates with _bright at runtime. Kept as two static
+    drawables (rather than an AnimationDrawable) because RemoteViews has
+    no supported way to call AnimationDrawable.start() from outside the
+    notification's own process — re-posting the notification with the
+    background swapped each tick is the approach that's actually
+    guaranteed to render.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#4DB9EDE0" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <stroke android:width="2dp" android:color="#4D7FE0D6" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</layer-list>
