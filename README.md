@@ -53,17 +53,3 @@ is stripped from release builds.
 
 Call-recording engine adapted from [ShizuCallRecorder](https://github.com/kitsumed/ShizuCallRecorder)
 (GPLv3+) and the Ever Dialer recorder module. scrcpy-server by Genymobile (Apache-2.0).
-
-
-## 1.6.3 final-release changes
-
-- Launcher/external Android app name is now **Phone**; the in-app product identity remains **Ashu Dialer**.
-- Added **Settings → Feedback & diagnostics**.
-- Added a user-initiated **Send diagnostic log** action. The report redacts obvious phone-number and email patterns before sharing.
-- Added **Firebase Crashlytics** for automatic crash reporting.
-- Firebase Analytics remains enabled for aggregate active-user and usage reporting.
-- Release metadata updated to version **1.6.3 (13)**.
-
-### Download tracking
-
-Firebase Hosting's dashboard "Downloads" metric is transferred bytes, not a count of people. The APK release URL is configured for GitHub Releases; GitHub's release asset download counter is the appropriate source for APK download count. Firebase Analytics in the app is the source for active users, sessions, retention, and first-open metrics.

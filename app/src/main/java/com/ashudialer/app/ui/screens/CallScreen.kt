@@ -735,7 +735,6 @@ private fun DjAvatarBadge(
 }
 
 @Composable
-@Composable
 private fun ArkestraVideoPlayer(
     playing: Boolean,
     palette: DialerPalette,
@@ -825,6 +824,7 @@ private fun ArkestraVideoPlayer(
     }
 }
 
+@Composable
 private fun ArkestraCallVisualizer(
     playing: Boolean,
     palette: DialerPalette,
