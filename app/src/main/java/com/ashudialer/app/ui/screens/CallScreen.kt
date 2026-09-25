@@ -95,6 +95,8 @@ fun CallScreen(
     // True when the running recording was started by the Auto-record setting
     // (not by tapping Record). Only changes the wording of the menu row.
     autoRecordActive: Boolean = false,
+    // When false, the caller avatar gradient ring remains static.
+    animateCallAvatarRing: Boolean = true,
     recordingMode: RecordingMode? = null,
     recordingSeconds: Int = 0,
     recordingLooksSilent: Boolean = false,
@@ -361,7 +363,8 @@ fun CallScreen(
                     isSavedContact = isSavedContact,
                     photoUri = callerPhotoUri,
                     onHold = isOnHold,
-                    palette = palette
+                    palette = palette,
+                    animateRing = animateCallAvatarRing
                 )
             }
 
@@ -600,7 +603,8 @@ private fun ScallopedAvatar(
     isSavedContact: Boolean,
     photoUri: String? = null,
     onHold: Boolean,
-    palette: DialerPalette
+    palette: DialerPalette,
+    animateRing: Boolean
 ) {
 
 
@@ -611,12 +615,13 @@ private fun ScallopedAvatar(
         animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing)),
         label = "avatar-gradient-angle"
     )
+    val appliedRotation = if (animateRing) rotationDegrees else 0f
 
     Box(
         modifier = Modifier
             .size(112.dp)
             .scale(if (onHold) 0.95f else 1f)
-            .drawScallopBackground(palette, rotationDegrees),
+            .drawScallopBackground(palette, appliedRotation),
         contentAlignment = Alignment.Center
     ) {
         if (isSavedContact && !photoUri.isNullOrBlank()) {

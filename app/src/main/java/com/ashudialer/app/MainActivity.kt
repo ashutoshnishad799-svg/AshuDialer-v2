@@ -1540,6 +1540,7 @@ class MainActivity : ComponentActivity() {
                                             onToggleShowSearchBar = { enabled -> viewModel.setShowSearchBar(enabled) },
                                             onSelectFontSize = { index -> viewModel.setFontSizeIndex(index) },
                                             onSelectButtonDepth = { depth -> viewModel.setButtonDepth(depth) },
+                                            onToggleAnimateCallAvatarRing = { enabled -> viewModel.setAnimateCallAvatarRing(enabled) },
                                             onExportCallHistory = {
                                                 scope.launch {
                                                     val csv = viewModel.exportCallHistoryCsv()

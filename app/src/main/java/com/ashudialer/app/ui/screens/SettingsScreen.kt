@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Build
@@ -64,6 +65,7 @@ fun SettingsScreen(
     onToggleShowSearchBar: (Boolean) -> Unit,
     onSelectFontSize: (Int) -> Unit,
     onSelectButtonDepth: (String) -> Unit = {},
+    onToggleAnimateCallAvatarRing: (Boolean) -> Unit = {},
     onExportCallHistory: () -> Unit,
     onImportCallHistory: () -> Unit,
     onOpenTelegramChannel: () -> Unit,
@@ -142,6 +144,15 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
                     ButtonDepthRow(selected = settings.buttonDepth, palette = palette, onSelect = onSelectButtonDepth)
+                    HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+                    ToggleRow(
+                        icon = Icons.Filled.Person,
+                        title = "Animated avatar ring",
+                        subtitle = "Rotate the gradient ring around the caller avatar during calls",
+                        checked = settings.animateCallAvatarRing,
+                        palette = palette,
+                        onToggle = onToggleAnimateCallAvatarRing
+                    )
                 }
             }
 

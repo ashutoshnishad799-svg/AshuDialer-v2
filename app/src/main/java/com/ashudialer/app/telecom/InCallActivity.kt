@@ -963,6 +963,7 @@ class InCallActivity : ComponentActivity() {
                                 isRecording = isRecording,
                                 isRecordingStarting = isRecordingStarting,
                                 autoRecordActive = isRecording && !manualRecordStarted && settings.autoRecordAll,
+                                animateCallAvatarRing = settings.animateCallAvatarRing,
                                 recordingMode = recordingMode,
                                 recordingSeconds = recordingSeconds,
                                 recordingLooksSilent = recordingLooksSilent,
