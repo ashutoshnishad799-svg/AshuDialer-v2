@@ -1523,6 +1523,7 @@ class MainActivity : ComponentActivity() {
                                                 recordingFlowFromSettings = true
                                                 overlay = OverlayScreen.RECORDING_SETTINGS
                                             },
+                                            onOpenHelpFeedback = { overlay = OverlayScreen.HELP_FEEDBACK },
                                             onToggleAutoRecordAll = { enabled ->
                                                 viewModel.setAutoRecordAll(enabled)
                                                 if (enabled) com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.AUTO_RECORD_ENABLED)

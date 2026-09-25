@@ -304,7 +304,7 @@ val PureBlackPalette = DialerPalette(
  */
 val ProfessionalPalette = DialerPalette(
     id = "professional",
-    displayName = "Professional",
+    displayName = "Clarity",
     isDark = false,
     background = Brush.verticalGradient(colors = listOf(Color(0xFFF4F5F7), Color(0xFFF4F5F7))),
     solidBackground = Color(0xFFF4F5F7),

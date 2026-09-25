@@ -28,8 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -182,7 +180,6 @@ private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean) {
     val bezel = 7.dp
     val screenW = 214.dp
     val screenH = 214.dp * 740f / 360f
-    val scale = 214f / 360f
 
     Box(
         modifier = Modifier
@@ -197,30 +194,22 @@ private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean) {
                 .size(screenW, screenH)
                 .clip(RoundedCornerShape(24.dp))
         ) {
-            Box(
-                modifier = Modifier
-                    .requiredSize(360.dp, 740.dp)
-                    .align(Alignment.TopStart)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                    }
-            ) {
-                IncomingCallScreen(
-                    callerName = SAMPLE_NAME,
-                    callerNumber = SAMPLE_NUMBER,
-                    isSavedContact = true,
-                    style = styleId,
-                    onAccept = {},
-                    onDecline = {},
-                    onQuickMessage = {},
-                    modifier = Modifier.fillMaxSize(),
-                    isPreview = true,
-                    glass = glass,
-                    forceDark = dark
-                )
-            }
+            // Render directly at the preview viewport's exact 360:740 aspect ratio.
+            // The previous requiredSize()+graphicsLayer approach could leave the transformed
+            // content clipped on some device densities, which made the preview look cut in half.
+            IncomingCallScreen(
+                callerName = SAMPLE_NAME,
+                callerNumber = SAMPLE_NUMBER,
+                isSavedContact = true,
+                style = styleId,
+                onAccept = {},
+                onDecline = {},
+                onQuickMessage = {},
+                modifier = Modifier.fillMaxSize(),
+                isPreview = true,
+                glass = glass,
+                forceDark = dark
+            )
         }
         // Speaker slot
         Box(

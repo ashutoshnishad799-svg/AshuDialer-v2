@@ -44,7 +44,7 @@ class ThemePreference(private val context: Context) {
     // updating to a build that has this fix, with no separate migration
     // step needed.
     val themeIdFlow: Flow<String> = context.dataStore.data.map { prefs ->
-        val id = prefs[key] ?: "ocean"
+        val id = prefs[key] ?: "auto"
         syncPrefs(context).edit().putString(SYNC_PREFS_KEY, id).apply()
         id
     }
@@ -69,7 +69,7 @@ class ThemePreference(private val context: Context) {
          * immediately; if the mirror hasn't been populated yet (a fresh
          * install, or this is genuinely the very first read anywhere in the
          * app since updating to a build with this cache), falls back to
-         * "ocean" - the same default themeIdFlow itself has always used -
+         * "auto" - the system-following default themeIdFlow now uses -
          * rather than trying to read DataStore synchronously.
          *
          * THE FIX for "app hangs/feels laggy sometimes on open": an earlier
@@ -89,7 +89,7 @@ class ThemePreference(private val context: Context) {
          * freeze for real.
          */
         fun peekLastKnownThemeId(context: Context): String =
-            syncPrefs(context).getString(SYNC_PREFS_KEY, null) ?: "ocean"
+            syncPrefs(context).getString(SYNC_PREFS_KEY, null) ?: "auto"
 
         @Deprecated(
             "Use peekLastKnownThemeId - this blocking variant caused intermittent open-time hangs (see peekLastKnownThemeId's doc comment) and should not be called from any Activity.onCreate.",

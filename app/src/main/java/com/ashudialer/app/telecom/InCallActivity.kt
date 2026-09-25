@@ -210,7 +210,7 @@ class InCallActivity : ComponentActivity() {
             // an in-call screen is exactly the moment a themed flash is
             // most visible, so it should match the app's actual default
             // rather than a different, unrelated palette.
-            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
+            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "auto")
             val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = AppSettings())
 
             // Keep the in-call Activity opaque for its whole lifetime. The
