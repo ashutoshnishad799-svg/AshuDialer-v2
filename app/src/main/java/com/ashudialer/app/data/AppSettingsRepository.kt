@@ -99,11 +99,7 @@ data class AppSettings(
     // adds a subtle drop shadow + slightly stronger border for a more
     // tactile, pressable look for anyone who wants buttons to look more
     // like physical buttons and less like flat labels.
-    val buttonDepth: String = "flat",
-
-    // Rotate the gradient ring around the caller avatar during in-call screens.
-    // Enabled by default; users can freeze it from Settings.
-    val animateCallAvatarRing: Boolean = true
+    val buttonDepth: String = "flat"
 )
 
 class AppSettingsRepository(private val context: Context) {
@@ -135,7 +131,6 @@ class AppSettingsRepository(private val context: Context) {
     private val keyDefaultSimAccountId = stringPreferencesKey("default_sim_account_id")
     private val keyConfirmSimBeforeCall = booleanPreferencesKey("confirm_sim_before_call")
     private val keyButtonDepth = stringPreferencesKey("button_depth")
-    private val keyAnimateCallAvatarRing = booleanPreferencesKey("animate_call_avatar_ring")
 
     /**
      * Ticks whenever any call-recording preference changes. SharedPreferences writes made directly
@@ -184,7 +179,6 @@ class AppSettingsRepository(private val context: Context) {
             defaultSimAccountId = prefs[keyDefaultSimAccountId] ?: "",
             confirmSimBeforeCall = prefs[keyConfirmSimBeforeCall] ?: true,
             buttonDepth = prefs[keyButtonDepth] ?: "flat",
-            animateCallAvatarRing = prefs[keyAnimateCallAvatarRing] ?: true,
         )
     }
 
@@ -306,9 +300,5 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setButtonDepth(depth: String) {
         context.settingsDataStore.edit { it[keyButtonDepth] = depth }
-    }
-
-    suspend fun setAnimateCallAvatarRing(enabled: Boolean) {
-        context.settingsDataStore.edit { it[keyAnimateCallAvatarRing] = enabled }
     }
 }

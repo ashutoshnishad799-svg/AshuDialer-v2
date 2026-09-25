@@ -757,10 +757,6 @@ class MainViewModel(
         viewModelScope.launch { appSettingsRepository.setButtonDepth(depth) }
     }
 
-    fun setAnimateCallAvatarRing(enabled: Boolean) {
-        viewModelScope.launch { appSettingsRepository.setAnimateCallAvatarRing(enabled) }
-    }
-
     fun setIncomingCallStyle(style: String) {
         viewModelScope.launch { appSettingsRepository.setIncomingCallStyle(style) }
     }

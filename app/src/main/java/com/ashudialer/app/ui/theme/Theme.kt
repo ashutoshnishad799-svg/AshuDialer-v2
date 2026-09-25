@@ -62,7 +62,7 @@ fun AshuDialerTheme(
 ) {
     val systemIsDark = isSystemInDarkTheme()
     val resolvedId = if (themeId == AUTO_THEME_ID) {
-        if (systemIsDark) "darkmode" else "professional"
+        if (systemIsDark) "darkmode" else "gradient"
     } else {
         themeId
     }

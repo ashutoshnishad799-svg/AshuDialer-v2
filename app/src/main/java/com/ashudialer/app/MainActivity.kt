@@ -1523,7 +1523,6 @@ class MainActivity : ComponentActivity() {
                                                 recordingFlowFromSettings = true
                                                 overlay = OverlayScreen.RECORDING_SETTINGS
                                             },
-                                            onOpenHelpFeedback = { overlay = OverlayScreen.HELP_FEEDBACK },
                                             onToggleAutoRecordAll = { enabled ->
                                                 viewModel.setAutoRecordAll(enabled)
                                                 if (enabled) com.ashudialer.app.data.AnalyticsTracker.logFeature(context, com.ashudialer.app.data.AnalyticsTracker.Feature.AUTO_RECORD_ENABLED)
@@ -1540,7 +1539,6 @@ class MainActivity : ComponentActivity() {
                                             onToggleShowSearchBar = { enabled -> viewModel.setShowSearchBar(enabled) },
                                             onSelectFontSize = { index -> viewModel.setFontSizeIndex(index) },
                                             onSelectButtonDepth = { depth -> viewModel.setButtonDepth(depth) },
-                                            onToggleAnimateCallAvatarRing = { enabled -> viewModel.setAnimateCallAvatarRing(enabled) },
                                             onExportCallHistory = {
                                                 scope.launch {
                                                     val csv = viewModel.exportCallHistoryCsv()

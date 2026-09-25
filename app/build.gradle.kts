@@ -3,7 +3,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
 }
 
 
@@ -75,8 +74,8 @@ android {
         applicationId = "com.ashudialer.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 14
-        versionName = "1.6.4"
+        versionCode = 12
+        versionName = "1.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -286,7 +285,6 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-analytics")
-    implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("io.getstream:stream-webrtc-android:1.3.10")

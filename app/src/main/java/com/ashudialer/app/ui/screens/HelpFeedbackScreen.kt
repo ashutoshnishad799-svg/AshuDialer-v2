@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CameraAlt
@@ -24,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.ui.theme.LocalDialerPalette
-import com.ashudialer.app.data.DiagnosticReport
 import com.ashudialer.app.ui.components.glassCard
 
 private data class FaqItem(val question: String, val answer: String)
@@ -143,24 +141,6 @@ fun HelpFeedbackScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("Diagnostics", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textSecondary, modifier = Modifier.padding(bottom = 8.dp, start = 4.dp))
-            SupportLinkRow(
-                icon = Icons.Filled.BugReport,
-                title = "Send diagnostic log",
-                subtitle = "Share a sanitized log with the developer for troubleshooting"
-            ) {
-                runCatching { DiagnosticReport.share(context) }
-                    .onFailure {
-                        android.widget.Toast.makeText(context, "Couldn't create the diagnostic report", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-            }
-            Text(
-                "Crash reports are collected automatically through Firebase Crashlytics. The diagnostic log is only shared when you choose to send it.",
-                fontSize = 12.sp, color = palette.textSecondary, lineHeight = 17.sp,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-            )
-
-            Spacer(Modifier.height(14.dp))
             Text("Support", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textSecondary, modifier = Modifier.padding(bottom = 8.dp, start = 4.dp))
             SupportLinkRow(
                 icon = Icons.Filled.Send,

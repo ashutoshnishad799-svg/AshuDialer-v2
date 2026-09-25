@@ -210,7 +210,7 @@ class InCallActivity : ComponentActivity() {
             // an in-call screen is exactly the moment a themed flash is
             // most visible, so it should match the app's actual default
             // rather than a different, unrelated palette.
-            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "auto")
+            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
             val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = AppSettings())
 
             // Keep the in-call Activity opaque for its whole lifetime. The
@@ -963,7 +963,6 @@ class InCallActivity : ComponentActivity() {
                                 isRecording = isRecording,
                                 isRecordingStarting = isRecordingStarting,
                                 autoRecordActive = isRecording && !manualRecordStarted && settings.autoRecordAll,
-                                animateCallAvatarRing = settings.animateCallAvatarRing,
                                 recordingMode = recordingMode,
                                 recordingSeconds = recordingSeconds,
                                 recordingLooksSilent = recordingLooksSilent,

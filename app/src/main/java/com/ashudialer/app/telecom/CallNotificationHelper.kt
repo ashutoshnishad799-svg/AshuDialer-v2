@@ -42,7 +42,7 @@ object CallNotificationHelper {
         val resolvedId = if (themeId == com.ashudialer.app.ui.theme.AUTO_THEME_ID) {
             val nightMode = context.resources.configuration.uiMode and
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            if (nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "darkmode" else "professional"
+            if (nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "darkmode" else "gradient"
         } else {
             themeId
         }

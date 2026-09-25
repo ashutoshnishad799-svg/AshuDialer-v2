@@ -16,5 +16,4 @@
     <files-path name="private_space_recordings" path="private_space_recordings/" />
     <cache-path name="update_apks" path="updates/" />
     <cache-path name="shared_contacts" path="shared_contacts/" />
-    <cache-path name="diagnostics" path="diagnostics/" />
 </paths>
