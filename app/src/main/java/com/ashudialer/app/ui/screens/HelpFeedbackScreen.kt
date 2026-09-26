@@ -107,10 +107,10 @@ fun HelpFeedbackScreen(
 ) {
     val palette = LocalDialerPalette.current
     val context = LocalContext.current
-    var showFeedbackDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showFeedbackDialog = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
-    if (showFeedbackDialog) {
-        com.ashudialer.app.ui.components.SendFeedbackDialog(onDismiss = { showFeedbackDialog = false })
+    if (showFeedbackDialog.value) {
+        com.ashudialer.app.ui.components.SendFeedbackDialog(onDismiss = { showFeedbackDialog.value = false })
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -153,7 +153,7 @@ fun HelpFeedbackScreen(
                 title = "Send feedback",
                 subtitle = "Type what happened - sent directly, no app to pick"
             ) {
-                showFeedbackDialog = true
+                showFeedbackDialog.value = true
             }
             SupportLinkRow(
                 icon = Icons.Filled.Send,

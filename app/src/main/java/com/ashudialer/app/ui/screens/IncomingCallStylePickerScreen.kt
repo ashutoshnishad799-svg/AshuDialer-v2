@@ -198,17 +198,20 @@ fun IncomingCallStylePickerScreen(
 /**
  * A phone-shaped frame around the real incoming-call composable.
  *
- * The content is laid out at 360 x 740 dp (a normal phone) and scaled down with graphicsLayer, so
- * the text and buttons keep their true proportions instead of being redrawn as a mock. The frame is
- * a rounded dark bezel with a small speaker slot at the top, which is what makes it read as "a
- * phone" and not just a card.
+ * The preview uses the same IncomingCallScreen composable as a real call, but lays it out directly
+ * inside a fixed phone-shaped viewport. Keeping one coordinate space avoids density-dependent
+ * clipping/overflow from scaling a required-size child through a graphics layer.
  */
 @Composable
 private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean, avatarPulse: Boolean) {
+    // Render the real incoming-call screen directly at the preview's measured size.
+    // The previous implementation laid out a 360x740 dp child and then applied a
+    // graphicsLayer scale. That made the scaled child and the clipped parent use
+    // different coordinate spaces, which could leave only the upper-left portion
+    // visible and a large empty bezel area below it on some densities.
     val bezel = 7.dp
     val screenW = 214.dp
-    val screenH = 214.dp * 740f / 360f
-    val scale = 214f / 360f
+    val screenH = screenW * (740f / 360f)
 
     Box(
         modifier = Modifier
@@ -216,56 +219,39 @@ private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean, av
             .clip(RoundedCornerShape(30.dp))
             .background(Color(0xFF111318))
             .padding(bezel),
-        contentAlignment = Alignment.TopCenter
+        contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(screenW, screenH)
+                .fillMaxSize()
                 .clip(RoundedCornerShape(24.dp))
         ) {
+            IncomingCallScreen(
+                callerName = SAMPLE_NAME,
+                callerNumber = SAMPLE_NUMBER,
+                isSavedContact = true,
+                style = styleId,
+                onAccept = {},
+                onDecline = {},
+                onQuickMessage = {},
+                modifier = Modifier.fillMaxSize(),
+                isPreview = true,
+                glass = glass,
+                forceDark = dark,
+                avatarPulseEnabled = avatarPulse
+            )
+
+            // Keep the speaker inside the phone screen so it stays at the top on
+            // every density and never consumes vertical space from the call UI.
             Box(
                 modifier = Modifier
-                    .requiredSize(360.dp, 740.dp)
-                    .align(Alignment.TopStart)
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                        // Any measurement overflow inside the 360x740 canvas below (e.g. from the
-                        // Clean/Center screens' weighted spacers not summing to exactly 1f) must be
-                        // cropped here, in the same layer that does the scaling. Without this, an
-                        // overflowing child bleeds outside the outer .clip(RoundedCornerShape(24.dp))
-                        // box above (that clip only bounds the pre-scale layout pass, not this
-                        // layer's drawn output) and reads as the avatar/name being "cut off" near the
-                        // top-left corner - which is where TransformOrigin(0f, 0f) makes any overflow
-                        // most visible.
-                        clip = true
-                    }
-            ) {
-                IncomingCallScreen(
-                    callerName = SAMPLE_NAME,
-                    callerNumber = SAMPLE_NUMBER,
-                    isSavedContact = true,
-                    style = styleId,
-                    onAccept = {},
-                    onDecline = {},
-                    onQuickMessage = {},
-                    modifier = Modifier.fillMaxSize(),
-                    isPreview = true,
-                    glass = glass,
-                    forceDark = dark,
-                    avatarPulseEnabled = avatarPulse
-                )
-            }
+                    .align(Alignment.TopCenter)
+                    .padding(top = 5.dp)
+                    .size(34.dp, 3.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2A2E38))
+            )
         }
-        // Speaker slot
-        Box(
-            Modifier
-                .padding(top = 2.dp)
-                .size(34.dp, 3.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF2A2E38))
-        )
     }
 }
 
