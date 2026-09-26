@@ -135,7 +135,12 @@ private fun formatClockShort(hour: Int, minute: Int): String {
     return if (minute == 0) "$displayHour $period" else "%d:%02d %s".format(displayHour, minute, period)
 }
 
-class MainActivity : ComponentActivity() {
+open class MainActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_LAUNCH_TAB = "com.ashudialer.app.EXTRA_LAUNCH_TAB"
+        const val TAB_CONTACTS = "contacts"
+    }
 
     private val viewModel: MainViewModel by viewModels {
         ViewModelFactory(application as AshuDialerApp)
@@ -144,6 +149,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val launchTab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
         // A modified / re-signed copy does not start the app. Calls are unaffected (the in-call screen and the call
         // services do not go through this activity), so the phone still works. See IntegrityGuard.
         if (com.ashudialer.app.util.IntegrityGuard.verify(this) == com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED) {
@@ -304,7 +310,9 @@ class MainActivity : ComponentActivity() {
             val app = context.applicationContext as AshuDialerApp
             val onboardingComplete by app.onboardingPreference.isCompleteFlow.collectAsState(initial = null)
             val scope = androidx.compose.runtime.rememberCoroutineScope()
-            var selectedTab by remember { mutableStateOf(DialerTab.RECENT) }
+            var selectedTab by remember {
+                mutableStateOf(if (launchTab == TAB_CONTACTS) DialerTab.CONTACTS else DialerTab.RECENT)
+            }
             var recordingGuideOpenedFromSettings by remember { mutableStateOf(false) }
             // Which screen opened the recording guide, so Back returns THERE. It used to always return to the
             // Recordings list, so tapping the (?) button on Recording settings and pressing Back dropped the person
@@ -2311,4 +2319,15 @@ private fun ReturnToCallBanner(
         }
         Text("Tap to return", color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getStringExtra(EXTRA_LAUNCH_TAB) == TAB_CONTACTS) {
+            // Recreate only for a launcher re-entry so the existing Compose
+            // state cannot leave the Contacts launcher alias on the previous tab.
+            recreate()
+        }
+    }
+
 }

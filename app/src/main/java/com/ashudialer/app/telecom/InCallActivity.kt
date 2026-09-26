@@ -125,6 +125,7 @@ class InCallActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        InCallGlassHelper.configure(window)
         if (intent.getBooleanExtra(EXTRA_AUTO_ANSWER, false)) {
             pendingAutoAnswer = true
         }
@@ -953,6 +954,7 @@ class InCallActivity : ComponentActivity() {
                                 callerPhotoUri = localContactMatch?.photoUri,
                                 isConnected = callState == Call.STATE_ACTIVE,
                                 isOnHold = callState == Call.STATE_HOLDING,
+                                glass = true,
                                 // Telecom's own wall-clock connect timestamp -
                                 // see CallScreen's connectTimeMillis doc
                                 // comment for why this (not a local counter)
@@ -1266,6 +1268,7 @@ class InCallActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        InCallGlassHelper.revealTransparentBackground(window)
         CallNotificationHelper.isCallScreenVisible = true
 
 

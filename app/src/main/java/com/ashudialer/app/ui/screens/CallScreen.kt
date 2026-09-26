@@ -133,6 +133,7 @@ fun CallScreen(
     // Defaulted so every other existing call site of this composable keeps
     // compiling unchanged.
     isEndingCall: Boolean = false,
+    glass: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -265,7 +266,7 @@ fun CallScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(palette.background)
+            .background(if (glass) palette.background.copy(alpha = 0.78f) else palette.background)
             .graphicsLayer {
                 alpha = screenAlpha
                 translationY = screenTranslationY
