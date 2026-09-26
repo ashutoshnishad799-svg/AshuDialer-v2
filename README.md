@@ -53,3 +53,8 @@ is stripped from release builds.
 
 Call-recording engine adapted from [ShizuCallRecorder](https://github.com/kitsumed/ShizuCallRecorder)
 (GPLv3+) and the Ever Dialer recorder module. scrcpy-server by Genymobile (Apache-2.0).
+
+## Notification/UI polish
+
+- Notifications now resolve the active app palette for light, dark, AMOLED and accent themes.
+- Launcher Phone and Contacts aliases use the selected PNG icon assets.

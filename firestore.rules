@@ -28,5 +28,13 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.resource.data.uid == request.auth.uid;
     }
+
+
+    // User-initiated Help & Support feedback. No public/anonymous writes.
+    match /feedback/{feedbackId} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
   }
 }

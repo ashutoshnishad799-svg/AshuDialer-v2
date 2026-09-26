@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.compose.ui.graphics.toArgb
 import com.ashudialer.app.AshuDialerApp
 import com.ashudialer.app.R
 
@@ -482,12 +483,10 @@ object CallNotificationHelper {
 
     private fun buildCompactOngoingLayout(context: Context, callerName: String): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.notification_call_compact)
-        val isDark = themeIsDark(context)
-        if (!isDark) {
-            views.setInt(R.id.compact_root, "setBackgroundResource", R.drawable.bg_notification_compact_light)
-            views.setTextColor(R.id.compact_name, android.graphics.Color.parseColor("#1C1C1E"))
-            views.setTextColor(R.id.compact_status, android.graphics.Color.parseColor("#996E6E73"))
-        }
+        val style = notificationThemeStyle(context)
+        views.setInt(R.id.compact_root, "setBackgroundResource", style.backgroundRes)
+        views.setTextColor(R.id.compact_name, style.primaryText)
+        views.setTextColor(R.id.compact_status, style.secondaryText)
         views.setTextViewText(R.id.compact_name, callerName)
         views.setTextViewText(R.id.compact_status, "Ongoing call")
         views.setOnClickPendingIntent(R.id.compact_speaker, CallActionReceiver.toggleSpeakerIntent(context))
@@ -534,6 +533,63 @@ object CallNotificationHelper {
         return views
     }
 
+    private data class NotificationThemeStyle(
+        val backgroundRes: Int,
+        val activePillRes: Int,
+        val primaryText: Int,
+        val secondaryText: Int
+    )
+
+    /**
+     * Resolve the exact same palette used by the Compose UI and map it to
+     * RemoteViews-safe XML resources. This keeps the notification card, text,
+     * and active controls visually aligned with Gradient/Ocean/Sunset/Violet/
+     * Midnight/Dark/Pure Black/Slate/White/Rainbow themes instead of using
+     * one hard-coded dark teal or one generic light card.
+     */
+    private fun notificationThemeStyle(context: Context): NotificationThemeStyle {
+        val themeId = com.ashudialer.app.data.ThemePreference.peekLastKnownThemeId(context)
+        val nightMode = context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        val systemIsDark = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val resolvedId = com.ashudialer.app.ui.theme.resolveThemeId(themeId, systemIsDark)
+        val palette = com.ashudialer.app.ui.theme.paletteById(resolvedId)
+        val bg = when (resolvedId) {
+            "gradient" -> R.drawable.bg_notification_theme_gradient
+            "midnight" -> R.drawable.bg_notification_theme_midnight
+            "ocean" -> R.drawable.bg_notification_theme_ocean
+            "sunset" -> R.drawable.bg_notification_theme_sunset
+            "violet" -> R.drawable.bg_notification_theme_violet
+            "rosegold" -> R.drawable.bg_notification_theme_rosegold
+            "darkmode" -> R.drawable.bg_notification_theme_darkmode
+            "pureblack" -> R.drawable.bg_notification_theme_pureblack
+            "professional" -> R.drawable.bg_notification_theme_professional
+            "white" -> R.drawable.bg_notification_theme_white
+            "rainbow" -> R.drawable.bg_notification_theme_rainbow
+            else -> if (palette.isDark) R.drawable.bg_notification_glass else R.drawable.bg_notification_glass_light
+        }
+        val active = when (resolvedId) {
+            "gradient" -> R.drawable.bg_notification_active_gradient
+            "midnight" -> R.drawable.bg_notification_active_midnight
+            "ocean" -> R.drawable.bg_notification_active_ocean
+            "sunset" -> R.drawable.bg_notification_active_sunset
+            "violet" -> R.drawable.bg_notification_active_violet
+            "rosegold" -> R.drawable.bg_notification_active_rosegold
+            "darkmode" -> R.drawable.bg_notification_active_darkmode
+            "pureblack" -> R.drawable.bg_notification_active_pureblack
+            "professional" -> R.drawable.bg_notification_active_professional
+            "white" -> R.drawable.bg_notification_active_white
+            "rainbow" -> R.drawable.bg_notification_active_rainbow
+            else -> R.drawable.bg_notification_pill_active
+        }
+        return NotificationThemeStyle(
+            backgroundRes = bg,
+            activePillRes = active,
+            primaryText = palette.textPrimary.toArgb(),
+            secondaryText = palette.textSecondary.toArgb()
+        )
+    }
+
     private fun buildGlassLayout(
         context: Context,
         callerName: String,
@@ -541,11 +597,10 @@ object CallNotificationHelper {
         incoming: Boolean
     ): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.notification_call_glass)
-        if (!themeIsDark(context)) {
-            views.setInt(R.id.notif_root, "setBackgroundResource", R.drawable.bg_notification_glass_light)
-            views.setTextColor(R.id.notif_name, android.graphics.Color.parseColor("#0B2E28"))
-            views.setTextColor(R.id.notif_status, android.graphics.Color.parseColor("#B34A6460"))
-        }
+        val style = notificationThemeStyle(context)
+        views.setInt(R.id.notif_root, "setBackgroundResource", style.backgroundRes)
+        views.setTextColor(R.id.notif_name, style.primaryText)
+        views.setTextColor(R.id.notif_status, style.secondaryText)
         views.setTextViewText(R.id.notif_name, callerName)
         views.setTextViewText(R.id.notif_status, statusText)
 
@@ -576,7 +631,7 @@ object CallNotificationHelper {
             val muted = liveState?.isMuted ?: CallAudioQuickActions.isMuted(context)
             views.setInt(
                 R.id.notif_btn_speaker, "setBackgroundResource",
-                if (currentRoute == AudioRoute.EARPIECE) R.drawable.bg_notification_pill_neutral else R.drawable.bg_notification_pill_active
+                if (currentRoute == AudioRoute.EARPIECE) R.drawable.bg_notification_pill_neutral else style.activePillRes
             )
             views.setImageViewResource(
                 R.id.notif_btn_speaker_icon,
@@ -584,7 +639,7 @@ object CallNotificationHelper {
             )
             views.setInt(
                 R.id.notif_btn_mute, "setBackgroundResource",
-                if (muted) R.drawable.bg_notification_pill_active else R.drawable.bg_notification_pill_neutral
+                if (muted) style.activePillRes else R.drawable.bg_notification_pill_neutral
             )
         }
         return views

@@ -3,6 +3,7 @@ package com.ashudialer.app.ui.components
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ashudialer.app.data.DiagnosticsShareHelper
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -43,6 +45,7 @@ fun SendFeedbackDialog(onDismiss: () -> Unit) {
     var sending by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var sent by remember { mutableStateOf(false) }
+    var sendJob by remember { mutableStateOf<Job?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (!sending) onDismiss() },
@@ -76,22 +79,27 @@ fun SendFeedbackDialog(onDismiss: () -> Unit) {
                 TextButton(
                     enabled = !sending && message.isNotBlank(),
                     onClick = {
+                        if (sending) return@TextButton
                         sending = true
                         errorText = null
-                        scope.launch {
-                            DiagnosticsShareHelper.sendToFirestore(context, message) { success ->
-                                sending = false
-                                if (success) {
-                                    sent = true
+                        sendJob = scope.launch {
+                            val result = DiagnosticsShareHelper.sendToFirestore(context, message)
+                            sending = false
+                            sendJob = null
+                            result.onSuccess {
+                                sent = true
+                            }.onFailure { error ->
+                                errorText = if (error is kotlinx.coroutines.CancellationException) {
+                                    null
                                 } else {
-                                    errorText = "Couldn't send - check your connection and try again."
+                                    "Couldn't send - check your connection and try again."
                                 }
                             }
                         }
                     }
                 ) {
                     if (sending) {
-                        CircularProgressIndicator(modifier = Modifier.height(16.dp).fillMaxWidth(0.3f))
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Text("Send")
                     }
@@ -102,7 +110,17 @@ fun SendFeedbackDialog(onDismiss: () -> Unit) {
         },
         dismissButton = {
             if (!sent) {
-                TextButton(enabled = !sending, onClick = onDismiss) { Text("Cancel") }
+                TextButton(
+                    onClick = {
+                        if (sending) {
+                            sendJob?.cancel()
+                            sendJob = null
+                            sending = false
+                        } else {
+                            onDismiss()
+                        }
+                    }
+                ) { Text(if (sending) "Cancel sending" else "Cancel") }
             }
         }
     )

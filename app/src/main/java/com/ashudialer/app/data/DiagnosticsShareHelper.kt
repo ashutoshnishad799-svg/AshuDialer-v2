@@ -5,13 +5,14 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import com.ashudialer.app.BuildConfig
 import com.ashudialer.app.util.CrashLogCollector
-import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.tasks.await
 
 /**
  * Builds the "Send feedback" report for Help & Feedback: app version, device model and Android
@@ -41,25 +42,39 @@ object DiagnosticsShareHelper {
      * network) so the caller can show a Toast and let the person retry - it is NOT silently
      * dropped on failure.
      */
-    fun sendToFirestore(context: Context, userMessage: String, onResult: (success: Boolean) -> Unit) {
-        val crashFile = CrashLogCollector.latestCrashReport(context)
-        val crashText = crashFile?.let { runCatching { it.readText() }.getOrNull() }
+    /**
+     * Sends the feedback report directly to Firestore. The app first makes sure
+     * this install has a Firebase identity; Firestore rules require an
+     * authenticated user for feedback writes. This is cancellable while the
+     * network request is in flight.
+     */
+    suspend fun sendToFirestore(context: Context, userMessage: String): Result<Unit> {
+        return try {
+            val signedIn = AuthRepository(context).ensureSignedIn()
+                ?: return Result.failure(IllegalStateException("Firebase authentication is unavailable."))
 
-        val doc = hashMapOf(
-            "message" to userMessage,
-            "appVersion" to BuildConfig.VERSION_NAME,
-            "versionCode" to BuildConfig.VERSION_CODE,
-            "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
-            "androidRelease" to android.os.Build.VERSION.RELEASE,
-            "androidSdk" to android.os.Build.VERSION.SDK_INT,
-            "crashReport" to crashText,
-            "sentAt" to com.google.firebase.Timestamp.now()
-        )
+            val crashFile = CrashLogCollector.latestCrashReport(context)
+            val crashText = crashFile?.let { runCatching { it.readText() }.getOrNull() }
 
-        Firebase.firestore.collection("feedback")
-            .add(doc)
-            .addOnSuccessListener { onResult(true) }
-            .addOnFailureListener { onResult(false) }
+            val doc = hashMapOf(
+                "message" to userMessage,
+                "appVersion" to BuildConfig.VERSION_NAME,
+                "versionCode" to BuildConfig.VERSION_CODE,
+                "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                "androidRelease" to android.os.Build.VERSION.RELEASE,
+                "androidSdk" to android.os.Build.VERSION.SDK_INT,
+                "crashReport" to crashText,
+                "uid" to signedIn.uid,
+                "sentAt" to com.google.firebase.Timestamp.now()
+            )
+
+            Firebase.firestore.collection("feedback").add(doc).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     fun share(context: Context) {
