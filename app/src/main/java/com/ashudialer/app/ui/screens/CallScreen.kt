@@ -266,7 +266,17 @@ fun CallScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(if (glass) palette.background.copy(alpha = 0.78f) else palette.background)
+            .then(
+                if (glass) {
+                    Modifier.drawWithCache {
+                        onDrawBehind {
+                            drawRect(brush = palette.background, alpha = 0.78f)
+                        }
+                    }
+                } else {
+                    Modifier.background(palette.background)
+                }
+            )
             .graphicsLayer {
                 alpha = screenAlpha
                 translationY = screenTranslationY

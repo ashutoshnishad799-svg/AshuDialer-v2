@@ -2257,6 +2257,14 @@ open class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getStringExtra(EXTRA_LAUNCH_TAB) == TAB_CONTACTS) {
+            // A launcher re-entry must refresh the Compose tab selection.
+            recreate()
+        }
+    }
 }
 
 
@@ -2320,14 +2328,5 @@ private fun ReturnToCallBanner(
         Text("Tap to return", color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        if (intent.getStringExtra(EXTRA_LAUNCH_TAB) == TAB_CONTACTS) {
-            // Recreate only for a launcher re-entry so the existing Compose
-            // state cannot leave the Contacts launcher alias on the previous tab.
-            recreate()
-        }
-    }
 
 }
