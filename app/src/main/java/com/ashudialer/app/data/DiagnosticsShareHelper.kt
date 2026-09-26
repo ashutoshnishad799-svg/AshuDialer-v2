@@ -5,6 +5,9 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import com.ashudialer.app.BuildConfig
 import com.ashudialer.app.util.CrashLogCollector
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.ktx.Firebase
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -19,10 +22,45 @@ import java.util.Locale
  * Deliberately never contains anything from a call: no phone numbers, contact names or
  * recordings, matching the "never sent" list this app already commits to everywhere else -
  * this is a device/app diagnostics report, not a call export.
+ *
+ * Two ways to send it:
+ *  - [sendToFirestore]: the default one-tap path from the Send Feedback dialog. Writes straight
+ *    to the "feedback" collection in this app's existing Firebase project (ashu-phone-07x, the
+ *    same one already used for auth/cloud-backup) - no share sheet, no app to pick, arrives
+ *    directly.
+ *  - [share]: the older share-sheet fallback, kept for anyone who taps "share as a file" instead
+ *    (e.g. to send it over their own email or chat app rather than straight to the developer).
  */
 object DiagnosticsShareHelper {
 
     private val TIMESTAMP_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+
+    /**
+     * Writes [userMessage] plus the device/app diagnostics straight to Firestore. [onResult] is
+     * called on the main thread with true on success, false if it couldn't be sent (e.g. no
+     * network) so the caller can show a Toast and let the person retry - it is NOT silently
+     * dropped on failure.
+     */
+    fun sendToFirestore(context: Context, userMessage: String, onResult: (success: Boolean) -> Unit) {
+        val crashFile = CrashLogCollector.latestCrashReport(context)
+        val crashText = crashFile?.let { runCatching { it.readText() }.getOrNull() }
+
+        val doc = hashMapOf(
+            "message" to userMessage,
+            "appVersion" to BuildConfig.VERSION_NAME,
+            "versionCode" to BuildConfig.VERSION_CODE,
+            "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+            "androidRelease" to android.os.Build.VERSION.RELEASE,
+            "androidSdk" to android.os.Build.VERSION.SDK_INT,
+            "crashReport" to crashText,
+            "sentAt" to com.google.firebase.Timestamp.now()
+        )
+
+        Firebase.firestore.collection("feedback")
+            .add(doc)
+            .addOnSuccessListener { onResult(true) }
+            .addOnFailureListener { onResult(false) }
+    }
 
     fun share(context: Context) {
         val reportText = buildReport(context)

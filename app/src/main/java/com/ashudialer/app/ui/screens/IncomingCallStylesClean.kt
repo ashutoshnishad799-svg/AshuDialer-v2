@@ -153,7 +153,7 @@ fun CleanIncomingCallScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.weight(0.479f))
+            Spacer(Modifier.weight(0.482f))
             Text("Incoming call", fontSize = 15.sp, color = c.subtitle, fontWeight = FontWeight.Medium,
                 modifier = Modifier.graphicsLayerAlphaRise(p))
             Spacer(Modifier.height(h * 0.02f))
@@ -250,7 +250,7 @@ fun CenterIncomingCallScreen(
                 Spacer(Modifier.height(12.dp))
                 SpamBadge()
             }
-            Spacer(Modifier.weight(0.253f))
+            Spacer(Modifier.weight(0.263f))
             Avatar(name = callerName, photoUri = callerPhotoUri, size = photo)
             Spacer(Modifier.weight(0.461f))
 
@@ -330,7 +330,7 @@ fun SwipeIncomingCallScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.weight(0.15f))
+            Spacer(Modifier.weight(0.26f))
             Text(
                 callerName, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = c.title,
                 textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,

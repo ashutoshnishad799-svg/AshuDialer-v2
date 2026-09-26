@@ -231,6 +231,15 @@ private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean, av
                         scaleX = scale
                         scaleY = scale
                         transformOrigin = TransformOrigin(0f, 0f)
+                        // Any measurement overflow inside the 360x740 canvas below (e.g. from the
+                        // Clean/Center screens' weighted spacers not summing to exactly 1f) must be
+                        // cropped here, in the same layer that does the scaling. Without this, an
+                        // overflowing child bleeds outside the outer .clip(RoundedCornerShape(24.dp))
+                        // box above (that clip only bounds the pre-scale layout pass, not this
+                        // layer's drawn output) and reads as the avatar/name being "cut off" near the
+                        // top-left corner - which is where TransformOrigin(0f, 0f) makes any overflow
+                        // most visible.
+                        clip = true
                     }
             ) {
                 IncomingCallScreen(

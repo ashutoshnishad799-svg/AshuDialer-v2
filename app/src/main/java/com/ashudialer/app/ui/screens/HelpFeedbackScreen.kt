@@ -96,7 +96,7 @@ private val faqs = listOf(
     ),
     FaqItem(
         "How do I report a problem?",
-        "Tap \"Send feedback\" below - it fills in your app version, phone model and Android version for you, and attaches your most recent crash report if the app has crashed. Just add what happened and send it wherever you'd like. Screenshots or a short screen recording still help a lot."
+        "Tap \"Send feedback\" below, describe what happened, and tap Send - your app version, phone model, Android version and your most recent crash report (if the app has crashed) are attached automatically, and it goes straight to the developer with no extra app to pick."
     )
 )
 
@@ -107,6 +107,11 @@ fun HelpFeedbackScreen(
 ) {
     val palette = LocalDialerPalette.current
     val context = LocalContext.current
+    var showFeedbackDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    if (showFeedbackDialog) {
+        com.ashudialer.app.ui.components.SendFeedbackDialog(onDismiss = { showFeedbackDialog = false })
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -146,9 +151,9 @@ fun HelpFeedbackScreen(
             SupportLinkRow(
                 icon = Icons.Filled.BugReport,
                 title = "Send feedback",
-                subtitle = "App version, device info and your last crash report, ready to send"
+                subtitle = "Type what happened - sent directly, no app to pick"
             ) {
-                com.ashudialer.app.data.DiagnosticsShareHelper.share(context)
+                showFeedbackDialog = true
             }
             SupportLinkRow(
                 icon = Icons.Filled.Send,
