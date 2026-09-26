@@ -66,13 +66,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.AshuDialer"
-            android:icon="@drawable/ic_launcher_phone"
-            android:roundIcon="@drawable/ic_launcher_phone">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+            android:theme="@style/Theme.AshuDialer">
             <!-- Required so the system offers this app when user taps "Set as default dialer" targets -->
             <intent-filter>
                 <action android:name="android.intent.action.DIAL" />
@@ -85,20 +79,46 @@
             </intent-filter>
         </activity>
 
-        <!-- ===== Native HyperOS-style second launcher entry ===== -->
-        <activity
-            android:name=".ContactsActivity"
+        <!--
+            "Phone" launcher icon - opens MainActivity straight into the Dialer / Recent Calls
+            tab (see MainActivity.launcherTabFor, called from onCreate and onNewIntent, which
+            reads the LAUNCHER_TAB meta-data below to pick DialerTab.RECENT). Carries the
+            MAIN/LAUNCHER filter that used to sit directly on MainActivity, so this alias - not
+            MainActivity itself - is now the Home-screen icon; MainActivity's DIAL filters above
+            still make it the target the system launches for "set as default dialer" and tel:
+            links, independent of which launcher icon exists.
+        -->
+        <activity-alias
+            android:name=".LauncherPhone"
+            android:targetActivity=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask"
-            android:theme="@style/Theme.AshuDialer"
-            android:label="Contacts"
-            android:icon="@drawable/ic_launcher_contacts"
-            android:roundIcon="@drawable/ic_launcher_contacts">
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:label="@string/app_name_launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="RECENT" />
+        </activity-alias>
+
+        <!--
+            "Contacts" launcher icon - opens MainActivity straight into the Contacts tab. Same
+            MainActivity, same task (android:launchMode="singleTask" above means a second icon
+            never opens a second window), just a different LAUNCHER_TAB meta-data value below.
+        -->
+        <activity-alias
+            android:name=".LauncherContacts"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_contacts"
+            android:label="@string/app_name_contacts">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="CONTACTS" />
+        </activity-alias>
 
         <!-- ===== Full-screen in-call UI ===== -->
         <activity

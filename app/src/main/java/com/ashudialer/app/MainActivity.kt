@@ -135,21 +135,62 @@ private fun formatClockShort(hour: Int, minute: Int): String {
     return if (minute == 0) "$displayHour $period" else "%d:%02d %s".format(displayHour, minute, period)
 }
 
-open class MainActivity : ComponentActivity() {
-
-    companion object {
-        const val EXTRA_LAUNCH_TAB = "com.ashudialer.app.EXTRA_LAUNCH_TAB"
-        const val TAB_CONTACTS = "contacts"
-    }
+class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels {
         ViewModelFactory(application as AshuDialerApp)
     }
 
+    // Backing state for which tab is selected, readable/settable from both the Composable (initial
+    // value, and normal in-app tab taps) and onNewIntent (when a second launcher-icon tap arrives
+    // while the app is already running - see the "singleTask" comment on onNewIntent below).
+    // mutableStateOf rather than a plain var so Compose recomposes when onNewIntent changes it.
+    private val launcherTabState = mutableStateOf(DialerTab.RECENT)
+
     @OptIn(ExperimentalMaterial3Api::class)
+    /**
+     * Which tab to open into, based on which Home-screen icon launched this activity - "Phone" vs
+     * "Contacts" (see the two activity-alias entries in AndroidManifest.xml). Both aliases target
+     * this same MainActivity, so [intent.component] is the alias's own component name, not
+     * MainActivity's; reading that alias's <meta-data> back via PackageManager is how this method
+     * tells the two apart. A LAUNCHER intent carries no extras of its own (those are set by the
+     * system, not by us), which is why this is manifest meta-data rather than an Intent extra.
+     *
+     * Falls back to RECENT (the pre-existing default) for a normal app-icon launch, an in-app
+     * navigation intent (e.g. a notification tap) that has no component set, or if the
+     * alias/meta-data can't be read for any reason - this must never crash the app over a
+     * cosmetic routing choice.
+     */
+    private fun launcherTabFor(intent: Intent?): DialerTab {
+        val componentName = intent?.component ?: return DialerTab.RECENT
+        return try {
+            val info = packageManager.getActivityInfo(componentName, android.content.pm.PackageManager.GET_META_DATA)
+            when (info.metaData?.getString("com.ashudialer.app.LAUNCHER_TAB")) {
+                "CONTACTS" -> DialerTab.CONTACTS
+                else -> DialerTab.RECENT
+            }
+        } catch (_: Exception) {
+            DialerTab.RECENT
+        }
+    }
+
+    /**
+     * With android:launchMode="singleTask" on MainActivity (see AndroidManifest.xml), tapping a
+     * launcher icon while the app is already running does NOT call onCreate again - it delivers
+     * here instead, with the *existing* activity instance still on screen. Without this override,
+     * tapping "Contacts" while the app was already open on some other tab would do nothing: the
+     * new intent's alias would never be read, so the tab would stay wherever it already was.
+     * setIntent(intent) keeps getIntent() in sync too, so a later recreate() (e.g. rotation) reads
+     * this new intent rather than the one the very first onCreate saw.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        launcherTabState.value = launcherTabFor(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val launchTab = intent.getStringExtra(EXTRA_LAUNCH_TAB)
         // A modified / re-signed copy does not start the app. Calls are unaffected (the in-call screen and the call
         // services do not go through this activity), so the phone still works. See IntegrityGuard.
         if (com.ashudialer.app.util.IntegrityGuard.verify(this) == com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED) {
@@ -159,6 +200,7 @@ open class MainActivity : ComponentActivity() {
             return
         }
         com.ashudialer.app.data.AnalyticsTracker.logAppOpened(this)
+        launcherTabState.value = launcherTabFor(intent)
 
         // Without this, the activity runs in Android's legacy (non
         // edge-to-edge) layout mode: the system draws the status bar and
@@ -310,9 +352,7 @@ open class MainActivity : ComponentActivity() {
             val app = context.applicationContext as AshuDialerApp
             val onboardingComplete by app.onboardingPreference.isCompleteFlow.collectAsState(initial = null)
             val scope = androidx.compose.runtime.rememberCoroutineScope()
-            var selectedTab by remember {
-                mutableStateOf(if (launchTab == TAB_CONTACTS) DialerTab.CONTACTS else DialerTab.RECENT)
-            }
+            var selectedTab by launcherTabState
             var recordingGuideOpenedFromSettings by remember { mutableStateOf(false) }
             // Which screen opened the recording guide, so Back returns THERE. It used to always return to the
             // Recordings list, so tapping the (?) button on Recording settings and pressing Back dropped the person
@@ -1520,6 +1560,7 @@ open class MainActivity : ComponentActivity() {
                                             onBack = { overlay = OverlayScreen.NONE },
                                             onOpenAppearance = { showThemePicker = true },
                                             onOpenIncomingCallStyle = { overlay = OverlayScreen.INCOMING_CALL_STYLE },
+                                            onToggleInCallFrostedGlass = { viewModel.setInCallFrostedGlass(it) },
                                             onToggleCallRecording = { enabled ->
                                                 if (enabled) {
                                                     // Recording is an optional feature. Keep every
@@ -2257,14 +2298,6 @@ open class MainActivity : ComponentActivity() {
             }
         }
     }
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        if (intent.getStringExtra(EXTRA_LAUNCH_TAB) == TAB_CONTACTS) {
-            // A launcher re-entry must refresh the Compose tab selection.
-            recreate()
-        }
-    }
 }
 
 
@@ -2327,6 +2360,4 @@ private fun ReturnToCallBanner(
         }
         Text("Tap to return", color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
-
-
 }

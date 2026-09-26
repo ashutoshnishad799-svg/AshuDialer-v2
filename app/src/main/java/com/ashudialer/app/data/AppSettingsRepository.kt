@@ -80,6 +80,17 @@ data class AppSettings(
     // stays still. Clean and Center ignore this, they have no such animation.
     val incomingCallAvatarPulse: Boolean = true,
 
+    // Frosted-glass look for the ACTIVE call screen (CallScreen, once a call connects) -
+    // separate from incomingCallGlass above, which only affects the ringing screen. When true,
+    // InCallActivity turns on a real background blur (Window.setBackgroundBlurRadius, Android
+    // 12+) behind the window and CallScreen draws its own background at reduced opacity so that
+    // blur shows through. Defaults to false (opt-in) rather than true like incomingCallGlass:
+    // this drives an actual window blur rather than just picking a color scheme, is unavailable
+    // below Android 12, and changes a screen that was deliberately made fully opaque earlier to
+    // avoid an OEM-transition glitch - so it should be something the person turns on
+    // deliberately and can turn back off, not a new default everyone gets silently.
+    val inCallFrostedGlass: Boolean = false,
+
     // Dual-SIM outgoing calls. Empty = always show the SIM picker before
     // dialing when there's no per-number routing rule (SimRoutingScreen)
     // for that number and more than one SIM is available - previously
@@ -132,6 +143,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
     private val keyIncomingCallStyle = stringPreferencesKey("incoming_call_style")
     private val keyIncomingCallGlass = booleanPreferencesKey("incoming_call_glass")
+    private val keyInCallFrostedGlass = booleanPreferencesKey("in_call_frosted_glass")
     private val keyIncomingCallAvatarPulse = booleanPreferencesKey("incoming_call_avatar_pulse")
     private val keyDefaultSimAccountId = stringPreferencesKey("default_sim_account_id")
     private val keyConfirmSimBeforeCall = booleanPreferencesKey("confirm_sim_before_call")
@@ -182,6 +194,7 @@ class AppSettingsRepository(private val context: Context) {
             incomingCallStyle = com.ashudialer.app.ui.screens.IncomingCallStyles.normalize(prefs[keyIncomingCallStyle]),
             incomingCallGlass = prefs[keyIncomingCallGlass] ?: true,
             incomingCallAvatarPulse = prefs[keyIncomingCallAvatarPulse] ?: true,
+            inCallFrostedGlass = prefs[keyInCallFrostedGlass] ?: false,
             defaultSimAccountId = prefs[keyDefaultSimAccountId] ?: "",
             confirmSimBeforeCall = prefs[keyConfirmSimBeforeCall] ?: true,
             buttonDepth = prefs[keyButtonDepth] ?: "flat",
@@ -298,6 +311,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setIncomingCallAvatarPulse(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyIncomingCallAvatarPulse] = enabled }
+    }
+
+    suspend fun setInCallFrostedGlass(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyInCallFrostedGlass] = enabled }
     }
 
     suspend fun setDefaultSimAccountId(id: String) {

@@ -58,10 +58,8 @@
     </style>
 
     <style name="Theme.AshuDialer.Call" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowShowWallpaper">true</item>
-        <item name="android:windowIsTranslucent">true</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowIsTranslucent">false</item>
         <!--
           Previously this call window was translucent. That allowed the previous
           Activity/launcher surface to remain visible behind the Telecom call

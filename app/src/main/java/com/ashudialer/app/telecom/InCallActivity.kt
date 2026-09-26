@@ -125,7 +125,6 @@ class InCallActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        InCallGlassHelper.configure(window)
         if (intent.getBooleanExtra(EXTRA_AUTO_ANSWER, false)) {
             pendingAutoAnswer = true
         }
@@ -188,10 +187,36 @@ class InCallActivity : ComponentActivity() {
         )
 
         lifecycleScope.launch {
-            val disableProximitySensor = runCatching {
-                app.appSettingsRepository.settingsFlow.first().disableProximitySensor
-            }.getOrDefault(false)
-            if (disableProximitySensor) setupLockScreenAndWakeFlags(true)
+            val loadedSettings = runCatching {
+                app.appSettingsRepository.settingsFlow.first()
+            }.getOrNull()
+            if (loadedSettings?.disableProximitySensor == true) setupLockScreenAndWakeFlags(true)
+
+            // Frosted-glass in-call background: blurs whatever is behind this window (the
+            // home/lock-screen wallpaper - this activity is excludeFromRecents and shows over
+            // the lock screen, so "behind" here is never another app's content) rather than
+            // blurring this activity's own Compose content. FLAG_SHOW_WALLPAPER makes the
+            // wallpaper the layer actually behind this window in the first place; without it
+            // FLAG_BLUR_BEHIND has nothing to sample and blurs nothing. Both the flag and
+            // setBackgroundBlurRadius were added in Android 12 (API 31), hence that guard.
+            // Additionally gated on the inCallFrostedGlass setting (default false, see
+            // AppSettings) so a device stays on the plain window background - and the system
+            // never spends anything computing a blur behind an opaque screen where it would be
+            // invisible anyway - unless the person has actually turned this on; CallScreen's own
+            // frostedGlassEnabled parameter (set from this same setting, in its call site below)
+            // is what makes the blur visible by drawing its background at reduced opacity. 85px
+            // matches the reference design's blur strength; tune here if a stronger/softer look
+            // is wanted later. Set once from this first read rather than kept live: unlike
+            // CallScreen's alpha (plain Compose state, reacts automatically), these are
+            // imperative Window API calls with no equivalent reactivity, so a mid-call settings
+            // change here would need its own explicit re-apply - deferred as a possible
+            // follow-up rather than adding that now, since nothing else in this activity reacts
+            // to a live settings change mid-call either.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && loadedSettings?.inCallFrostedGlass == true) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                window.setBackgroundBlurRadius(85)
+            }
         }
 
 
@@ -954,7 +979,6 @@ class InCallActivity : ComponentActivity() {
                                 callerPhotoUri = localContactMatch?.photoUri,
                                 isConnected = callState == Call.STATE_ACTIVE,
                                 isOnHold = callState == Call.STATE_HOLDING,
-                                glass = true,
                                 // Telecom's own wall-clock connect timestamp -
                                 // see CallScreen's connectTimeMillis doc
                                 // comment for why this (not a local counter)
@@ -977,6 +1001,7 @@ class InCallActivity : ComponentActivity() {
                                 secondaryCallerNumber = secondaryNumber,
                                 secondaryCallState = secondaryState,
                                 recordingAvailable = com.ashudialer.app.BuildConfig.CALL_RECORDING_ENABLED && settings.callRecordingEnabled && callState == Call.STATE_ACTIVE,
+                                frostedGlassEnabled = settings.inCallFrostedGlass,
                                 isRecording = isRecording,
                                 isRecordingStarting = isRecordingStarting,
                                 autoRecordActive = isRecording && !manualRecordStarted && settings.autoRecordAll,
@@ -1268,7 +1293,6 @@ class InCallActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        InCallGlassHelper.revealTransparentBackground(window)
         CallNotificationHelper.isCallScreenVisible = true
 
 

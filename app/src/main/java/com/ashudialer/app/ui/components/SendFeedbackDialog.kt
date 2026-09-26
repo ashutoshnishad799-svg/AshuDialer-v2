@@ -91,7 +91,7 @@ fun SendFeedbackDialog(onDismiss: () -> Unit) {
                     }
                 ) {
                     if (sending) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.height(16.dp).fillMaxWidth(0.3f))
                     } else {
                         Text("Send")
                     }

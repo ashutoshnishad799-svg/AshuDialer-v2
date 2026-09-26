@@ -133,7 +133,13 @@ fun CallScreen(
     // Defaulted so every other existing call site of this composable keeps
     // compiling unchanged.
     isEndingCall: Boolean = false,
-    glass: Boolean = false,
+    // Frosted-glass look: when true, the root background is drawn at reduced opacity so the
+    // blurred wallpaper set up by InCallActivity (Window.setBackgroundBlurRadius, Android 12+)
+    // shows through softly instead of this screen being fully opaque. Defaults to false so every
+    // existing call site - and every device below Android 12, where InCallActivity never enables
+    // the blur in the first place - keeps the current, fully-opaque screen. See InCallActivity's
+    // call site of CallScreen for where this is threaded from Settings.
+    frostedGlassEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -266,17 +272,7 @@ fun CallScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .then(
-                if (glass) {
-                    Modifier.drawWithCache {
-                        onDrawBehind {
-                            drawRect(brush = palette.background, alpha = 0.78f)
-                        }
-                    }
-                } else {
-                    Modifier.background(palette.background)
-                }
-            )
+            .background(palette.background, alpha = if (frostedGlassEnabled) 0.92f else 1f)
             .graphicsLayer {
                 alpha = screenAlpha
                 translationY = screenTranslationY

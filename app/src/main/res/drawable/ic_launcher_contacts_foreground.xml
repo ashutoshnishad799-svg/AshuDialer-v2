@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive-icon foreground for the "Contacts" launcher alias - white glossy person-silhouette
+    (head + shoulders), matching ic_launcher_foreground's (the Phone alias) gradient-fill /
+    soft-shadow visual style so the two launcher icons read as a matched pair. Content stays
+    inside the 66dp "safe zone" (of the full 108dp canvas), same as the Phone glyph.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft shadow beneath the glyph, same treatment as the Phone icon's handset shadow. -->
+    <path android:fillColor="#1A0B2E4A" android:pathData="M54,78 m-26,0 a26,10 0,1 1,52 0 a26,10 0,1 1,-52 0" />
+
+    <!-- Head - circle. -->
+    <path android:pathData="M54,28 m-15,0 a15,15 0,1 1,30 0 a15,15 0,1 1,-30 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="39"
+                android:startY="13"
+                android:endX="69"
+                android:endY="43"
+                android:startColor="#FFFFFF"
+                android:endColor="#E9F0FA" />
+        </aapt:attr>
+    </path>
+
+    <!-- Shoulders - rounded-top half-capsule beneath the head, same "card-style" body shape
+         HyperOS-family contacts glyphs use rather than a full second circle. -->
+    <path android:pathData="M22,82 C22,63.7 36.3,49 54,49 C71.7,49 86,63.7 86,82 L86,84 C86,86.2 84.2,88 82,88 L26,88 C23.8,88 22,86.2 22,84 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="22"
+                android:startY="49"
+                android:endX="86"
+                android:endY="88"
+                android:startColor="#FFFFFF"
+                android:endColor="#E9F0FA" />
+        </aapt:attr>
+    </path>
+</vector>

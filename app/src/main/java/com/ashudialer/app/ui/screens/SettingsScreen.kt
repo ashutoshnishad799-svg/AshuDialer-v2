@@ -49,6 +49,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAppearance: () -> Unit,
     onOpenIncomingCallStyle: () -> Unit,
+    onToggleInCallFrostedGlass: (Boolean) -> Unit,
     onToggleCallRecording: (Boolean) -> Unit,
     onToggleAutoRecordAll: (Boolean) -> Unit,
     onOpenRecordingSettings: () -> Unit = {},
@@ -138,6 +139,12 @@ fun SettingsScreen(
                         subtitle = incomingCallStyleDisplayName(settings.incomingCallStyle),
                         palette = palette,
                         onClick = onOpenIncomingCallStyle
+                    )
+                    HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
+                    ToggleRow(
+                        title = "Frosted glass call screen",
+                        subtitle = "Blurs your wallpaper behind an active call. Needs Android 12 or newer",
+                        checked = settings.inCallFrostedGlass, palette = palette, onToggle = onToggleInCallFrostedGlass
                     )
                     HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
                     ButtonDepthRow(selected = settings.buttonDepth, palette = palette, onSelect = onSelectButtonDepth)

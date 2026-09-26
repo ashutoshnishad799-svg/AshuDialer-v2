@@ -749,6 +749,10 @@ class MainViewModel(
         viewModelScope.launch { appSettingsRepository.setIncomingCallAvatarPulse(enabled) }
     }
 
+    fun setInCallFrostedGlass(enabled: Boolean) {
+        viewModelScope.launch { appSettingsRepository.setInCallFrostedGlass(enabled) }
+    }
+
     fun setDefaultSimAccountId(id: String) {
         viewModelScope.launch { appSettingsRepository.setDefaultSimAccountId(id) }
     }

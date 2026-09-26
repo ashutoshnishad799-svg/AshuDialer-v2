@@ -6,7 +6,6 @@ import androidx.core.content.FileProvider
 import com.ashudialer.app.BuildConfig
 import com.ashudialer.app.util.CrashLogCollector
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import java.io.File
@@ -57,24 +56,9 @@ object DiagnosticsShareHelper {
             "sentAt" to com.google.firebase.Timestamp.now()
         )
 
-        // Firestore rules require an authenticated user. Use the same silent
-        // anonymous Firebase identity as the rest of the app; no account UI
-        // is shown and Google Sign-In is not required for feedback.
-        val auth = try { FirebaseAuth.getInstance() } catch (_: Exception) {
-            onResult(false)
-            return
-        }
-        val authTask = auth.currentUser?.let {
-            com.google.android.gms.tasks.Tasks.forResult(it)
-        } ?: auth.signInAnonymously()
-
-        authTask
-            .addOnSuccessListener {
-                Firebase.firestore.collection("feedback")
-                    .add(doc)
-                    .addOnSuccessListener { onResult(true) }
-                    .addOnFailureListener { onResult(false) }
-            }
+        Firebase.firestore.collection("feedback")
+            .add(doc)
+            .addOnSuccessListener { onResult(true) }
             .addOnFailureListener { onResult(false) }
     }
 

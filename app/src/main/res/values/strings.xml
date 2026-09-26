@@ -7,6 +7,7 @@
          split is purely so a future screen can still say "Ashu Dialer" by
          name without also changing what the launcher shows. -->
     <string name="app_name_launcher">Phone</string>
+    <string name="app_name_contacts">Contacts</string>
     <string name="tab_contacts">Contacts</string>
     <string name="tab_recent">Recent</string>
     <string name="tab_dialer">Dialer</string>
