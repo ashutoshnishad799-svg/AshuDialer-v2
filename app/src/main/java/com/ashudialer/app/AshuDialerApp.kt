@@ -102,6 +102,8 @@ class AshuDialerApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash during any of the setup below is still caught.
+        com.ashudialer.app.util.CrashLogCollector.install(this)
         database = AshuDialerDatabase.getInstance(this)
         callLogRepository = CallLogRepository(database.callLogDao())
         systemCallLogRepository = SystemCallLogRepository(this)

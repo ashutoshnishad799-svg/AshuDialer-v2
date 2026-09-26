@@ -304,7 +304,13 @@ val PureBlackPalette = DialerPalette(
  */
 val ProfessionalPalette = DialerPalette(
     id = "professional",
-    displayName = "Professional",
+    // Renamed from "Professional" now that this palette is also what System/Auto resolves to
+    // in light mode (see resolveThemeId in Theme.kt) rather than only a manually-picked
+    // option - "Slate" matches this doc comment's own description of the look (a cool
+    // slate/graphite palette) without implying it's the "correct" or "business" choice for
+    // everyone who lands on it by default. The id string is untouched, so this is purely a
+    // label change: anyone who already had "professional" explicitly selected keeps it.
+    displayName = "Slate",
     isDark = false,
     background = Brush.verticalGradient(colors = listOf(Color(0xFFF4F5F7), Color(0xFFF4F5F7))),
     solidBackground = Color(0xFFF4F5F7),

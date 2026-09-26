@@ -113,7 +113,10 @@ fun IncomingCallScreen(
     glass: Boolean = true,
     // When null the current theme decides (dark theme -> dark look). The picker passes a value so it
     // can show both looks side by side.
-    forceDark: Boolean? = null
+    forceDark: Boolean? = null,
+    // Only the Swipe style's pulsing glow behind the photo reads this - Clean and Center have
+    // no such animation, so they ignore it.
+    avatarPulseEnabled: Boolean = true
 ) {
     val dark = forceDark ?: LocalDialerPalette.current.isDark
     when (IncomingCallStyles.normalize(style)) {
@@ -127,7 +130,7 @@ fun IncomingCallScreen(
             callerName = callerName, callerNumber = callerNumber, spamAssessment = spamAssessment,
             callerPhotoUri = callerPhotoUri, isSavedContact = isSavedContact,
             onAccept = onAccept, onDecline = onDecline, onQuickMessage = onQuickMessage, modifier = modifier,
-            isPreview = isPreview, dark = dark, glass = glass
+            isPreview = isPreview, dark = dark, glass = glass, avatarPulseEnabled = avatarPulseEnabled
         )
         else -> CleanIncomingCallScreen(
             callerName = callerName, callerNumber = callerNumber, spamAssessment = spamAssessment,

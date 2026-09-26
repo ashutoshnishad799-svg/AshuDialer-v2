@@ -80,6 +80,8 @@ fun IncomingCallStylePickerScreen(
     onBack: () -> Unit,
     glassEnabled: Boolean = true,
     onGlassChange: (Boolean) -> Unit = {},
+    avatarPulseEnabled: Boolean = true,
+    onAvatarPulseChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -94,7 +96,15 @@ fun IncomingCallStylePickerScreen(
     val scrollState = androidx.compose.foundation.rememberScrollState()
     LaunchedEffect(current) { scrollState.scrollTo(0) }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            // Matches AddContactScreen's exact pattern - this screen's parent container in
+            // MainActivity (the overlay Box) applies no inset padding of its own, and the app
+            // runs edge-to-edge, so without this the back button/title row can be drawn
+            // partly under the status bar or a camera cutout.
+            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -111,7 +121,8 @@ fun IncomingCallStylePickerScreen(
                 .fillMaxWidth()
                 .weight(1f)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -125,7 +136,7 @@ fun IncomingCallStylePickerScreen(
             // Which look to preview. A light theme only ever has the light look, so the switch is
             // shown only where there is a choice (dark theme).
             var previewDark by remember { mutableStateOf(palette.isDark) }
-            PhoneFramePreview(styleId = current, dark = previewDark && palette.isDark, glass = glassEnabled)
+            PhoneFramePreview(styleId = current, dark = previewDark && palette.isDark, glass = glassEnabled, avatarPulse = avatarPulseEnabled)
 
             if (palette.isDark) {
                 Spacer(Modifier.height(12.dp))
@@ -164,6 +175,21 @@ fun IncomingCallStylePickerScreen(
                     )
                 }
             }
+            // Only the Swipe style has any continuous animation around the photo (a slow
+            // pulsing glow behind it) - Clean and Center are fully static, so this toggle
+            // would have nothing to do for them and is hidden to avoid implying otherwise.
+            if (current == IncomingCallStyles.SWIPE) {
+                Spacer(Modifier.height(16.dp))
+                Column(Modifier.fillMaxWidth().glassCard(palette, 18.dp)) {
+                    ToggleRow(
+                        title = "Pulsing glow around photo",
+                        subtitle = "The soft glow that breathes in and out behind the photo while ringing. Turn off to keep the photo still",
+                        checked = avatarPulseEnabled,
+                        palette = palette,
+                        onToggle = onAvatarPulseChange
+                    )
+                }
+            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -178,7 +204,7 @@ fun IncomingCallStylePickerScreen(
  * phone" and not just a card.
  */
 @Composable
-private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean) {
+private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean, avatarPulse: Boolean) {
     val bezel = 7.dp
     val screenW = 214.dp
     val screenH = 214.dp * 740f / 360f
@@ -218,7 +244,8 @@ private fun PhoneFramePreview(styleId: String, dark: Boolean, glass: Boolean) {
                     modifier = Modifier.fillMaxSize(),
                     isPreview = true,
                     glass = glass,
-                    forceDark = dark
+                    forceDark = dark,
+                    avatarPulseEnabled = avatarPulse
                 )
             }
         }

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.ashudialer.app.ui.theme.AUTO_THEME_ID
 
 private val Context.dataStore by preferencesDataStore(name = "pixel_dialer_prefs")
 
@@ -44,7 +45,7 @@ class ThemePreference(private val context: Context) {
     // updating to a build that has this fix, with no separate migration
     // step needed.
     val themeIdFlow: Flow<String> = context.dataStore.data.map { prefs ->
-        val id = prefs[key] ?: "ocean"
+        val id = prefs[key] ?: AUTO_THEME_ID
         syncPrefs(context).edit().putString(SYNC_PREFS_KEY, id).apply()
         id
     }

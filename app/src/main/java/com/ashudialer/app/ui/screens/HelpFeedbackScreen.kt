@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -95,7 +96,7 @@ private val faqs = listOf(
     ),
     FaqItem(
         "How do I report a problem?",
-        "Send the app version, phone model and a short description of what happened. Screenshots or a short screen recording can make troubleshooting much faster."
+        "Tap \"Send feedback\" below - it fills in your app version, phone model and Android version for you, and attaches your most recent crash report if the app has crashed. Just add what happened and send it wherever you'd like. Screenshots or a short screen recording still help a lot."
     )
 )
 
@@ -142,6 +143,13 @@ fun HelpFeedbackScreen(
 
             Spacer(Modifier.height(16.dp))
             Text("Support", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = palette.textSecondary, modifier = Modifier.padding(bottom = 8.dp, start = 4.dp))
+            SupportLinkRow(
+                icon = Icons.Filled.BugReport,
+                title = "Send feedback",
+                subtitle = "App version, device info and your last crash report, ready to send"
+            ) {
+                com.ashudialer.app.data.DiagnosticsShareHelper.share(context)
+            }
             SupportLinkRow(
                 icon = Icons.Filled.Send,
                 title = "Message me on Telegram",

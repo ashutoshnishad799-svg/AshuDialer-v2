@@ -289,19 +289,31 @@ fun SwipeIncomingCallScreen(
     modifier: Modifier = Modifier,
     isPreview: Boolean = false,
     dark: Boolean = false,
-    glass: Boolean = true
+    glass: Boolean = true,
+    avatarPulseEnabled: Boolean = true
 ) {
     val c = colorsFor(dark, glass, tinted = true)
     val rise by rememberEntranceProgress(if (isPreview) 0 else 60)
     val p = if (isPreview) 1f else rise
 
-    // A slow "breathing" halo behind the photo (so the screen feels alive without being busy).
-    val breathe = rememberInfiniteTransition(label = "swipe-breathe")
-    val halo by breathe.animateFloat(
-        initialValue = 0.94f, targetValue = 1.10f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing), RepeatMode.Reverse),
-        label = "halo"
-    )
+    // A slow "breathing" halo behind the photo (so the screen feels alive without being
+    // busy) - this is the one animation in this screen that also runs in the settings
+    // picker's own small preview (rather than being forced static via isPreview like the
+    // entrance-fade animations above), so turning "Pulsing glow around photo" on or off in
+    // Settings is visible right there without waiting for a real call. When turned off the
+    // infinite animation is never created at all (not just visually pinned to 1f), so a
+    // disabled toggle actually stops the animation loop instead of leaving it running unseen.
+    val halo: Float = if (avatarPulseEnabled) {
+        val breathe = rememberInfiniteTransition(label = "swipe-breathe")
+        val animatedHalo by breathe.animateFloat(
+            initialValue = 0.94f, targetValue = 1.10f,
+            animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing), RepeatMode.Reverse),
+            label = "halo"
+        )
+        animatedHalo
+    } else {
+        1f
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -340,7 +352,7 @@ fun SwipeIncomingCallScreen(
                 Box(
                     Modifier
                         .size(photo * 1.22f)
-                        .graphicsLayer { scaleX = if (isPreview) 1f else halo; scaleY = if (isPreview) 1f else halo }
+                        .graphicsLayer { scaleX = halo; scaleY = halo }
                         .clip(CircleShape)
                         .background(AcceptGreen.copy(alpha = 0.14f))
                 )

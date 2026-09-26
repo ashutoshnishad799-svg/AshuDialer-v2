@@ -1,8 +1,5 @@
 package com.ashudialer.app.ui.screens
 
-import android.net.Uri
-import android.view.ViewGroup
-import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -53,12 +50,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.rotate as rotateCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ashudialer.app.R
 import com.ashudialer.app.telecom.AudioRoute
 import com.ashudialer.app.telecom.RecordingMode
 import com.ashudialer.app.ui.theme.DialerPalette
@@ -145,7 +140,6 @@ fun CallScreen(
     var state by remember { mutableStateOf(CallUiState.CONNECTING) }
     var showKeypad by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
-    var arkestraPlaying by remember { mutableStateOf(true) }
     // Digits the person has typed on the in-call keypad (sent as tones), shown above the keys for the WHOLE call, from the
     // first digit to the last. Closing and reopening the keypad does not clear them (they used to vanish on close); the
     // full history lives in PixelInCallService, so it also survives the screen being rebuilt.
@@ -369,13 +363,6 @@ fun CallScreen(
                     onHold = isOnHold,
                     palette = palette
                 )
-                DjAvatarBadge(
-                    playing = arkestraPlaying && isCallActive,
-                    palette = palette,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset(y = 18.dp)
-                )
             }
 
             Spacer(Modifier.height(24.dp))
@@ -554,22 +541,8 @@ fun CallScreen(
                 }
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
 
-            // Real Arkestra test clip supplied for this build. The source clip is
-            // cropped to a compact 720x640 frame so the face AND the
-            // "Khushi raj official" watermark remain visible inside the
-            // in-call layout. The packaged asset contains no audio.
-            ArkestraVideoPlayer(
-                playing = arkestraPlaying && isCallActive,
-                palette = palette,
-                onToggle = { arkestraPlaying = !arkestraPlaying },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 30.dp)
-            )
-
-            Spacer(Modifier.height(10.dp))
 
             Box(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 36.dp),
@@ -641,7 +614,7 @@ private fun ScallopedAvatar(
 
     Box(
         modifier = Modifier
-            .size(128.dp)
+            .size(112.dp)
             .scale(if (onHold) 0.95f else 1f)
             .drawScallopBackground(palette, rotationDegrees),
         contentAlignment = Alignment.Center
@@ -655,7 +628,7 @@ private fun ScallopedAvatar(
                 model = photoUri,
                 contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.size(128.dp).clip(CircleShape)
+                modifier = Modifier.size(112.dp).clip(CircleShape)
             )
         } else if (isSavedContact) {
             Text(
@@ -671,232 +644,6 @@ private fun ScallopedAvatar(
                 tint = palette.textPrimary,
                 modifier = Modifier.size(48.dp)
             )
-        }
-    }
-}
-
-
-@Composable
-private fun DjAvatarBadge(
-    playing: Boolean,
-    palette: DialerPalette,
-    modifier: Modifier = Modifier
-) {
-    val transition = rememberInfiniteTransition(label = "dj-avatar")
-    val bob by transition.animateFloat(
-        initialValue = -2f,
-        targetValue = 3f,
-        animationSpec = infiniteRepeatable(
-            tween(650, easing = FastOutSlowInEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "dj-bob"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = 0.86f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            tween(700, easing = FastOutSlowInEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "dj-pulse"
-    )
-    Row(
-        modifier = modifier
-            .offset(y = bob.dp)
-            .scale(if (playing) pulse else 1f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(palette.cardBackground.copy(alpha = 0.96f))
-            .border(1.dp, palette.cardBorder.copy(alpha = 0.8f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            Icons.Filled.Headphones,
-            contentDescription = "DJ",
-            tint = palette.accent,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(4.dp))
-        Icon(
-            if (playing) Icons.Filled.MusicNote else Icons.Filled.Pause,
-            contentDescription = null,
-            tint = palette.textPrimary,
-            modifier = Modifier.size(15.dp)
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = if (playing) "DJ" else "DJ paused",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = palette.textPrimary
-        )
-    }
-}
-
-@Composable
-private fun ArkestraVideoPlayer(
-    playing: Boolean,
-    palette: DialerPalette,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var prepared by remember { mutableStateOf(false) }
-
-    Box(
-        modifier = modifier
-            .height(218.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.Black)
-            .border(1.dp, palette.cardBorder.copy(alpha = 0.75f), RoundedCornerShape(24.dp))
-    ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                VideoView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    setVideoURI(
-                        Uri.parse(
-                            "android.resource://${ctx.packageName}/${R.raw.arkestra_khushi_raj_official}"
-                        )
-                    )
-                    setOnPreparedListener { player ->
-                        player.isLooping = true
-                        // Explicitly mute the media player. The bundled clip is
-                        // already audio-stripped as an extra safety layer.
-                        player.setVolume(0f, 0f)
-                        prepared = true
-                        if (playing) start()
-                    }
-                    setOnCompletionListener {
-                        if (playing) start()
-                    }
-                    setOnErrorListener { _, _, _ ->
-                        prepared = false
-                        true
-                    }
-                }
-            },
-            update = { video ->
-                if (!prepared) return@AndroidView
-                if (playing) {
-                    if (!video.isPlaying) video.start()
-                } else if (video.isPlaying) {
-                    video.pause()
-                }
-            }
-        )
-
-        // A subtle control keeps the video useful without adding another
-        // large button to the already-busy call screen.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(10.dp)
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(onClick = onToggle),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (playing) "Pause Arkestra video" else "Play Arkestra video",
-                tint = Color.White,
-                modifier = Modifier.size(23.dp)
-            )
-        }
-    }
-
-    // VideoView owns a Surface/MediaPlayer underneath the Compose tree, so
-    // explicitly pause it when the composable leaves the call screen.
-    DisposableEffect(Unit) {
-        onDispose {
-            // AndroidView is torn down with the composition; no global player
-            // is retained, so the clip can never continue after the call UI
-            // is gone.
-        }
-    }
-}
-
-@Composable
-private fun ArkestraCallVisualizer(
-    playing: Boolean,
-    palette: DialerPalette,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val transition = rememberInfiniteTransition(label = "arkestra-visualizer")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = (2f * Math.PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(1150, easing = LinearEasing)),
-        label = "arkestra-phase"
-    )
-    val bars = remember { List(18) { i -> (0.28f + (i % 5) * 0.12f).coerceAtMost(0.82f) } }
-
-    Row(
-        modifier = modifier
-            .height(82.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(palette.cardBackground.copy(alpha = 0.94f))
-            .border(1.dp, palette.cardBorder.copy(alpha = 0.75f), RoundedCornerShape(28.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(54.dp)
-                .clip(CircleShape)
-                .background(palette.accent.copy(alpha = 0.12f))
-                .clickable(onClick = onToggle),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (playing) "Pause Arkestra" else "Play Arkestra",
-                tint = palette.accent,
-                modifier = Modifier.size(27.dp)
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.width(92.dp)) {
-            Text(
-                "ARKESTRA",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 1.5.sp,
-                color = palette.textPrimary
-            )
-            Text(
-                if (playing) "DJ mode • live" else "DJ mode • paused",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = palette.textSecondary
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        Row(
-            modifier = Modifier.weight(1f).height(38.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            bars.forEachIndexed { index, base ->
-                val wave = (sin(phase + index * 0.72f) * 0.22f + base).coerceIn(0.12f, 1f)
-                val height = if (playing) wave else 0.18f
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .fillMaxHeight(height)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(palette.accent.copy(alpha = if (playing) 0.72f else 0.28f))
-                )
-            }
         }
     }
 }

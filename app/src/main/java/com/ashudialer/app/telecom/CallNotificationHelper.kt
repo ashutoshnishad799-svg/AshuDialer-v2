@@ -33,19 +33,17 @@ object CallNotificationHelper {
      * window-background fix already uses (see ThemePreference's class
      * doc) rather than DataStore directly, since building a notification
      * is a synchronous call path with no natural place to await a Flow,
-     * and resolves "auto" the same way AshuDialerTheme does (system dark
-     * -> darkmode, else -> gradient) so this never disagrees with what
-     * the in-app UI is actually showing.
+     * and resolves "auto" through the same resolveThemeId() function
+     * AshuDialerTheme and InCallActivity's window-background placeholder
+     * both use, so this can never disagree with what the in-app UI is
+     * actually showing.
      */
     private fun themeIsDark(context: Context): Boolean {
         val themeId = com.ashudialer.app.data.ThemePreference.peekLastKnownThemeId(context)
-        val resolvedId = if (themeId == com.ashudialer.app.ui.theme.AUTO_THEME_ID) {
-            val nightMode = context.resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            if (nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES) "darkmode" else "gradient"
-        } else {
-            themeId
-        }
+        val nightMode = context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        val systemIsDark = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val resolvedId = com.ashudialer.app.ui.theme.resolveThemeId(themeId, systemIsDark)
         return com.ashudialer.app.ui.theme.paletteById(resolvedId).isDark
     }
 

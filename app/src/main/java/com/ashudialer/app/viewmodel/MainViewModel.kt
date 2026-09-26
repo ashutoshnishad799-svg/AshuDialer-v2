@@ -53,7 +53,7 @@ class MainViewModel(
     private val reportedSpamDao: com.ashudialer.app.data.db.ReportedSpamDao
 ) : ViewModel() {
     val themeId: StateFlow<String> = themePreference.themeIdFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "gradient")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.ashudialer.app.ui.theme.AUTO_THEME_ID)
 
     private val _contacts = MutableStateFlow<List<Contact>>(emptyList())
     val contacts: StateFlow<List<Contact>> = _contacts
@@ -743,6 +743,10 @@ class MainViewModel(
 
     fun setIncomingCallGlass(enabled: Boolean) {
         viewModelScope.launch { appSettingsRepository.setIncomingCallGlass(enabled) }
+    }
+
+    fun setIncomingCallAvatarPulse(enabled: Boolean) {
+        viewModelScope.launch { appSettingsRepository.setIncomingCallAvatarPulse(enabled) }
     }
 
     fun setDefaultSimAccountId(id: String) {

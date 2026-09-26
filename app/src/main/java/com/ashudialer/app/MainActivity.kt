@@ -190,13 +190,26 @@ class MainActivity : ComponentActivity() {
         // constraint: viewModel.themeId below is a real StateFlow collected
         // inside setContent a few lines down, so the same-frame runtime
         // window-background paint isn't worth a blocking main-thread read
-        // here. Using the plain non-blocking sync-only read instead - it
-        // simply falls back to "ocean" if the cache isn't populated yet,
-        // same as before this feature existed at all, and the very next
-        // recomposition (once viewModel.themeId emits) repaints with the
-        // correct theme's actual background regardless.
+        // here. Using the plain non-blocking sync-only read instead - if
+        // the cache isn't populated yet this resolves to "ocean" same as
+        // before this feature existed at all (peekLastKnownThemeId's own
+        // fallback), and either way the very next recomposition (once
+        // viewModel.themeId emits) repaints with the correct theme's
+        // actual background regardless.
+        //
+        // "auto" resolution: the cache's steady-state value is now "auto"
+        // for most installs (see ThemePreference's default), and
+        // paletteById() has no entry for "auto" - without resolving it
+        // first here the same way resolveThemeId() does everywhere else,
+        // this would silently fall back to GradientPalette and flash a
+        // light teal background on every cold app open for anyone in dark
+        // mode, regardless of their actual theme.
         val syncedThemeId = com.ashudialer.app.data.ThemePreference.peekLastKnownThemeId(this)
-        val placeholderColor = com.ashudialer.app.ui.theme.paletteById(syncedThemeId).solidBackground
+        val systemIsDarkSync = (resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val resolvedSyncedThemeId = com.ashudialer.app.ui.theme.resolveThemeId(syncedThemeId, systemIsDarkSync)
+        val placeholderColor = com.ashudialer.app.ui.theme.paletteById(resolvedSyncedThemeId).solidBackground
         window.setBackgroundDrawable(
             android.graphics.drawable.ColorDrawable(placeholderColor.toArgb())
         )
@@ -1874,6 +1887,8 @@ class MainActivity : ComponentActivity() {
                                             onBack = { overlay = OverlayScreen.NONE },
                                             glassEnabled = settings.incomingCallGlass,
                                             onGlassChange = { viewModel.setIncomingCallGlass(it) },
+                                            avatarPulseEnabled = settings.incomingCallAvatarPulse,
+                                            onAvatarPulseChange = { viewModel.setIncomingCallAvatarPulse(it) },
                                             modifier = Modifier.fillMaxSize()
                                         )
                                         OverlayScreen.NONE -> {}

@@ -173,7 +173,15 @@ class InCallActivity : ComponentActivity() {
         // Compose tree (using the real themeIdFlow value, which can only ever
         // be equal or more current) draws over it immediately after.
         val syncedThemeId = com.ashudialer.app.data.ThemePreference.peekLastKnownThemeId(this)
-        val placeholderColor = com.ashudialer.app.ui.theme.paletteById(syncedThemeId).solidBackground
+        // Configuration.uiMode (not isSystemInDarkTheme(), which is Compose-only and not
+        // available before setContent) - the same synchronous, no-Flow check
+        // CallNotificationHelper.themeIsDark() already uses for the same "resolve auto with no
+        // coroutine available" reason.
+        val systemIsDarkSync = (resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val resolvedSyncedThemeId = com.ashudialer.app.ui.theme.resolveThemeId(syncedThemeId, systemIsDarkSync)
+        val placeholderColor = com.ashudialer.app.ui.theme.paletteById(resolvedSyncedThemeId).solidBackground
         window.setBackgroundDrawable(
             android.graphics.drawable.ColorDrawable(placeholderColor.toArgb())
         )
@@ -204,13 +212,19 @@ class InCallActivity : ComponentActivity() {
         applyCallEnterTransition()
 
         setContent {
-            // "ocean" here (not "gradient") to match ThemePreference's own
-            // steady-state default - this is only the placeholder shown for
-            // the brief instant before the real DataStore value loads, but
-            // an in-call screen is exactly the moment a themed flash is
-            // most visible, so it should match the app's actual default
-            // rather than a different, unrelated palette.
-            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
+            // AUTO_THEME_ID here to match ThemePreference's own steady-state
+            // default - this is only the placeholder shown for the brief
+            // instant before the real DataStore value loads, but an in-call
+            // screen is exactly the moment a themed flash is most visible,
+            // so it should match the app's actual default rather than a
+            // different, unrelated palette. AshuDialerTheme (below, via
+            // resolveThemeId) already knows how to turn "auto" into a real
+            // palette using isSystemInDarkTheme(), so no extra resolution is
+            // needed at this call site the way the synchronous window-
+            // background placeholder above needs its own sync check.
+            val themeId by app.themePreference.themeIdFlow.collectAsState(
+                initial = com.ashudialer.app.ui.theme.AUTO_THEME_ID
+            )
             val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = AppSettings())
 
             // Keep the in-call Activity opaque for its whole lifetime. The
@@ -874,6 +888,7 @@ class InCallActivity : ComponentActivity() {
                                 spamAssessment = spamAssessment,
                                 style = settings.incomingCallStyle,
                                 glass = settings.incomingCallGlass,
+                                avatarPulseEnabled = settings.incomingCallAvatarPulse,
                                 onAccept = {
                                     current.answer(answerVideoStateFor(current))
                                     logCallAsync(app, number, displayName, CallDirection.INCOMING)

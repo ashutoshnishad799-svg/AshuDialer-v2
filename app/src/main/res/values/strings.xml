@@ -1,5 +1,12 @@
 <resources>
     <string name="app_name">Ashu Dialer</string>
+    <!-- What actually shows on the home screen, app drawer, Recents card and
+         Settings > Apps (see AndroidManifest's android:label). Kept separate
+         from app_name so the internal name stays "Ashu Dialer" everywhere
+         else - app_name isn't referenced anywhere else in the app, so this
+         split is purely so a future screen can still say "Ashu Dialer" by
+         name without also changing what the launcher shows. -->
+    <string name="app_name_launcher">Phone</string>
     <string name="tab_contacts">Contacts</string>
     <string name="tab_recent">Recent</string>
     <string name="tab_dialer">Dialer</string>

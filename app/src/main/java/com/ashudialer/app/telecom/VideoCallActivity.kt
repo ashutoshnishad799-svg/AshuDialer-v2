@@ -115,7 +115,9 @@ class VideoCallActivity : ComponentActivity() {
         val localUid = app.authRepository.currentUserUidOrNull()
 
         setContent {
-            val themeId by app.themePreference.themeIdFlow.collectAsState(initial = "ocean")
+            val themeId by app.themePreference.themeIdFlow.collectAsState(
+                initial = com.ashudialer.app.ui.theme.AUTO_THEME_ID
+            )
             val settings by app.appSettingsRepository.settingsFlow.collectAsState(initial = com.ashudialer.app.data.AppSettings())
 
             // DEEP FIX for "an incoming video call request should show an

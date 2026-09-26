@@ -76,6 +76,10 @@ data class AppSettings(
     // light exactly like the reference designs, on every theme.
     val incomingCallGlass: Boolean = true,
 
+    // The Swipe incoming-call style's slow pulsing glow behind the photo. Off = the photo
+    // stays still. Clean and Center ignore this, they have no such animation.
+    val incomingCallAvatarPulse: Boolean = true,
+
     // Dual-SIM outgoing calls. Empty = always show the SIM picker before
     // dialing when there's no per-number routing rule (SimRoutingScreen)
     // for that number and more than one SIM is available - previously
@@ -128,6 +132,7 @@ class AppSettingsRepository(private val context: Context) {
     private val keyFontSizeIndex = androidx.datastore.preferences.core.intPreferencesKey("font_size_index")
     private val keyIncomingCallStyle = stringPreferencesKey("incoming_call_style")
     private val keyIncomingCallGlass = booleanPreferencesKey("incoming_call_glass")
+    private val keyIncomingCallAvatarPulse = booleanPreferencesKey("incoming_call_avatar_pulse")
     private val keyDefaultSimAccountId = stringPreferencesKey("default_sim_account_id")
     private val keyConfirmSimBeforeCall = booleanPreferencesKey("confirm_sim_before_call")
     private val keyButtonDepth = stringPreferencesKey("button_depth")
@@ -176,6 +181,7 @@ class AppSettingsRepository(private val context: Context) {
             fontSizeIndex = prefs[keyFontSizeIndex] ?: 1,
             incomingCallStyle = com.ashudialer.app.ui.screens.IncomingCallStyles.normalize(prefs[keyIncomingCallStyle]),
             incomingCallGlass = prefs[keyIncomingCallGlass] ?: true,
+            incomingCallAvatarPulse = prefs[keyIncomingCallAvatarPulse] ?: true,
             defaultSimAccountId = prefs[keyDefaultSimAccountId] ?: "",
             confirmSimBeforeCall = prefs[keyConfirmSimBeforeCall] ?: true,
             buttonDepth = prefs[keyButtonDepth] ?: "flat",
@@ -288,6 +294,10 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setIncomingCallGlass(enabled: Boolean) {
         context.settingsDataStore.edit { it[keyIncomingCallGlass] = enabled }
+    }
+
+    suspend fun setIncomingCallAvatarPulse(enabled: Boolean) {
+        context.settingsDataStore.edit { it[keyIncomingCallAvatarPulse] = enabled }
     }
 
     suspend fun setDefaultSimAccountId(id: String) {

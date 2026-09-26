@@ -30,6 +30,27 @@ val LocalButtonDepth = compositionLocalOf { "flat" }
 
 const val AUTO_THEME_ID = "auto"
 
+/**
+ * The one place "auto" is turned into a real theme id. Used here, by InCallActivity's
+ * pre-Compose window-background placeholder, and by CallNotificationHelper's notification
+ * styling, so all three always agree on what "System" actually looks like - previously only
+ * this Composable and CallNotificationHelper each had their own hand-copied version of this
+ * mapping (identical, but two places to get out of sync) and InCallActivity had none at all,
+ * which meant an "auto" user in dark mode got a plain Gradient-colored flash before every call.
+ *
+ * System light -> "professional" (the Slate look - see ProfessionalPalette's displayName;
+ * the id string itself is unchanged so nobody's already-saved explicit "professional" choice
+ * or DataStore value needs a migration). System dark -> "darkmode", which - unlike Pure
+ * Black - keeps flatSurfaces = false and so already renders every card through the app's
+ * normal frosted/translucent "glass" look (see DialerPalette.flatSurfaces's doc comment).
+ */
+fun resolveThemeId(themeId: String, systemIsDark: Boolean): String =
+    if (themeId == AUTO_THEME_ID) {
+        if (systemIsDark) "darkmode" else "professional"
+    } else {
+        themeId
+    }
+
 private val DialerTypography = Typography(
     headlineLarge = TextStyle(fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, letterSpacing = (-0.5).sp),
     titleLarge = TextStyle(fontWeight = FontWeight.Bold, fontSize = 20.sp),
@@ -61,11 +82,7 @@ fun AshuDialerTheme(
     content: @Composable () -> Unit
 ) {
     val systemIsDark = isSystemInDarkTheme()
-    val resolvedId = if (themeId == AUTO_THEME_ID) {
-        if (systemIsDark) "darkmode" else "gradient"
-    } else {
-        themeId
-    }
+    val resolvedId = resolveThemeId(themeId, systemIsDark)
     val palette = paletteById(resolvedId)
 
     val scheme = if (palette.isDark) {

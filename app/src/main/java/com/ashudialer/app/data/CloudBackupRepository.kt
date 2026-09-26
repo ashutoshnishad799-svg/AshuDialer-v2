@@ -149,7 +149,7 @@ class CloudBackupRepository {
         val simRules = simRaw.mapNotNull { (it as? Map<*, *>)?.toSimRoutingEntity() }
         val vibRules = vibRaw.mapNotNull { (it as? Map<*, *>)?.toVibrationRuleEntity() }
         val spam = spamRaw.mapNotNull { (it as? Map<*, *>)?.toReportedSpamEntity() }
-        val themeId = snapshot.getString("themeId") ?: "ocean"
+        val themeId = snapshot.getString("themeId") ?: com.ashudialer.app.ui.theme.AUTO_THEME_ID
         val lastBackedUp = snapshot.getLong("lastBackedUpAtMillis") ?: 0L
 
         return BackupSnapshot(callLog, blocked, contacts, notes, simRules, vibRules, spam, themeId, lastBackedUp)
