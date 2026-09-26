@@ -107,7 +107,7 @@ fun HelpFeedbackScreen(
 ) {
     val palette = LocalDialerPalette.current
     val context = LocalContext.current
-    var showFeedbackDialog = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val showFeedbackDialog = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
     if (showFeedbackDialog.value) {
         com.ashudialer.app.ui.components.SendFeedbackDialog(onDismiss = { showFeedbackDialog.value = false })
