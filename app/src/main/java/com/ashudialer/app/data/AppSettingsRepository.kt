@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore(name = "pixel_dialer_settings")
@@ -148,6 +149,13 @@ class AppSettingsRepository(private val context: Context) {
     private val keyDefaultSimAccountId = stringPreferencesKey("default_sim_account_id")
     private val keyConfirmSimBeforeCall = booleanPreferencesKey("confirm_sim_before_call")
     private val keyButtonDepth = stringPreferencesKey("button_depth")
+    // "Haven't talked in N days" card on Recents (see ReconnectRepository/
+    // ReconnectSuggestionCard). Stores "phoneNumber|epochDay" of the last
+    // dismissed suggestion - epochDay (not just the number) so dismissing
+    // today doesn't permanently suppress that same contact if they come up
+    // again as a fresh suggestion weeks later; see
+    // MainViewModel.dismissReconnectSuggestion for how this is read back.
+    private val keyDismissedReconnectSuggestion = stringPreferencesKey("dismissed_reconnect_suggestion")
 
     /**
      * Ticks whenever any call-recording preference changes. SharedPreferences writes made directly
@@ -327,5 +335,13 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setButtonDepth(depth: String) {
         context.settingsDataStore.edit { it[keyButtonDepth] = depth }
+    }
+
+    /** "phoneNumber|epochDay" of the last dismissed reconnect suggestion, or null if none yet. */
+    suspend fun dismissedReconnectSuggestion(): String? =
+        context.settingsDataStore.data.first()[keyDismissedReconnectSuggestion]
+
+    suspend fun setDismissedReconnectSuggestion(phoneNumber: String, epochDay: Long) {
+        context.settingsDataStore.edit { it[keyDismissedReconnectSuggestion] = "$phoneNumber|$epochDay" }
     }
 }

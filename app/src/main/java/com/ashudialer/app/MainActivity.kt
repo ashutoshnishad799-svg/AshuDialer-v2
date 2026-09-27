@@ -161,6 +161,59 @@ class MainActivity : ComponentActivity() {
      * alias/meta-data can't be read for any reason - this must never crash the app over a
      * cosmetic routing choice.
      */
+    /**
+     * Forces this task's Recents/app-switcher label and icon to match whichever launcher alias
+     * (Phone vs Contacts) actually opened it, rather than leaving Android's own default behavior
+     * in place.
+     *
+     * Root cause this works around: MainActivity has no android:taskAffinity set, so - per
+     * https://pub.dev/documentation/dynamic_app_icon_changer (documents the same activity-alias
+     * pattern used here) - both LauncherPhone and LauncherContacts inherit MainActivity's default
+     * affinity and are treated as ONE task by the OS, not two separate ones. With
+     * launchMode="singleTask" reusing that one task on every tap of either icon, and neither
+     * MainActivity nor either alias setting an explicit android:label (see AndroidManifest.xml),
+     * Android's Recents entry for the task falls back to whichever alias intent most recently
+     * started/resumed it - so opening from the Contacts icon and then just navigating to the
+     * Dialer tab inside the same running task left the task's Recents card reading "Contacts"
+     * over Dialer content, since nothing had told the OS otherwise since that last alias launch.
+     * (See Activity.setTaskDescription's own docs: "the activities of each task are traversed...
+     * until a suitable value is found" - i.e. this is intentional OS behavior to override, not a
+     * bug in the platform.)
+     *
+     * Called from both onCreate and onNewIntent (the same two places launcherTabState is set),
+     * driven by the SAME DialerTab launcherTabFor(intent) just resolved, so the two can never
+     * disagree - whichever tab the person is actually looking at is exactly what Recents shows.
+     *
+     * ActivityManager.TaskDescription.Builder (the non-deprecated way to do this) is API 33+
+     * only; minSdk here is 29 (see app/build.gradle.kts), so API 29-32 falls back to the
+     * deprecated two-arg constructor TaskDescription(label, iconRes) - itself only added in
+     * API 28, so it's safely available everywhere this minSdk reaches - matching the pattern
+     * real apps use for this same gap (e.g.
+     * https://github.com/sheepdestroyer/materialisheep/pull/365). Wrapped in a broad catch -
+     * this is a cosmetic Recents-card fix, never worth crashing the app over on some OEM's
+     * non-standard ActivityManager behavior.
+     */
+    private fun updateTaskDescriptionFor(tab: DialerTab) {
+        try {
+            val label = getString(
+                if (tab == DialerTab.CONTACTS) R.string.app_name_contacts else R.string.app_name_launcher
+            )
+            val iconRes = if (tab == DialerTab.CONTACTS) R.mipmap.ic_launcher_contacts_png else R.mipmap.ic_launcher_png
+            val description = if (Build.VERSION.SDK_INT >= 33) {
+                android.app.ActivityManager.TaskDescription.Builder()
+                    .setLabel(label)
+                    .setIcon(android.graphics.drawable.Icon.createWithResource(this, iconRes))
+                    .build()
+            } else {
+                @Suppress("DEPRECATION")
+                android.app.ActivityManager.TaskDescription(label, iconRes)
+            }
+            setTaskDescription(description)
+        } catch (_: Exception) {
+            // Cosmetic only - see doc comment above. Never worth surfacing to the user.
+        }
+    }
+
     private fun launcherTabFor(intent: Intent?): DialerTab {
         val componentName = intent?.component ?: return DialerTab.RECENT
         return try {
@@ -186,7 +239,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        launcherTabState.value = launcherTabFor(intent)
+        val tab = launcherTabFor(intent)
+        launcherTabState.value = tab
+        updateTaskDescriptionFor(tab)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,7 +255,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         com.ashudialer.app.data.AnalyticsTracker.logAppOpened(this)
-        launcherTabState.value = launcherTabFor(intent)
+        val initialTab = launcherTabFor(intent)
+        launcherTabState.value = initialTab
+        updateTaskDescriptionFor(initialTab)
 
         // Without this, the activity runs in Android's legacy (non
         // edge-to-edge) layout mode: the system draws the status bar and
@@ -290,6 +347,13 @@ class MainActivity : ComponentActivity() {
             val reportedSpamNumbers by viewModel.reportedSpamNumbers.collectAsState()
             val quietHoursSchedule by viewModel.quietHoursSchedule.collectAsState()
             val callInsights by viewModel.callInsights.collectAsState()
+            val reconnectSuggestion by viewModel.reconnectSuggestion.collectAsState()
+            // Computed once when the app opens (a bounded DB read - see
+            // MainViewModel.loadReconnectSuggestion's doc comment for why
+            // this isn't recomputed on every recomposition), not per-tab, so
+            // the card in RecentsScreen is ready by the time the person
+            // actually lands there rather than popping in a beat late.
+            LaunchedEffect(Unit) { viewModel.loadReconnectSuggestion() }
             var insightsPeriod by remember { mutableStateOf(com.ashudialer.app.data.InsightsPeriod.WEEK) }
             // Lifted out of CallInsightsScreen's own internal remember so
             // the top-level BackHandler chain below can see and step
@@ -1187,6 +1251,14 @@ class MainActivity : ComponentActivity() {
                                         showPhoneNumbers = settings.showPhoneNumbers,
                                         useRelativeDate = settings.useRelativeDate,
                                         groupByDay = settings.groupRecentsByDay,
+                                        reconnectSuggestion = reconnectSuggestion,
+                                        onCallReconnectSuggestion = { suggestion ->
+                                            buttonHaptic()
+                                            placeCall(suggestion.phoneNumber)
+                                        },
+                                        onDismissReconnectSuggestion = { suggestion ->
+                                            viewModel.dismissReconnectSuggestion(suggestion)
+                                        },
                                         modifier = Modifier.fillMaxSize()
                                     )
                                     DialerTab.CONTACTS -> ContactsScreen(

@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Adaptive-icon background for the "Contacts" launcher alias - same green
-    (#3DBB4E) as ic_launcher_background.xml (the Phone alias), not the earlier
-    HyperOS-style blue. The user supplied a real reference image for this icon
-    (a green glossy person-glyph, matching the Phone icon's own green family)
-    the same way ic_launcher_background/foreground.xml were already built to
-    match a green phone-glyph reference - this brings the adaptive-icon layer
-    back in line with that image and with the legacy PNG fallback
-    (mipmap-*/ic_launcher_contacts_png.png), which is now that same reference
-    image directly. Before this fix the two paths disagreed (green legacy PNG,
-    blue adaptive icon), showing a different color depending on which one a
-    given launcher/Android version actually used.
+    Adaptive-icon background for the "Contacts" launcher alias. The reference
+    image changed again (this session's upload is a blue glossy address-book
+    icon, not the green person-glyph from the session before), so this value
+    needed a fresh derivation rather than reusing the green #3DBB4E this file
+    briefly held.
+    #529BED was computed by box-filter-downsampling the actual reference
+    image (contacts_v2_squared.png) to a 4x4 grid and taking the
+    alpha-weighted average of those 16 samples - a genuine spatial average of
+    the glossy icon's color range (it swings from ~#1476EC in shadow to
+    ~#B3D5FA in highlight), not a single sampled pixel or an eyeballed
+    midpoint. This keeps the same "computed representative flat color" logic
+    ic_launcher_background.xml's #3DBB4E follows for the Phone alias, applied
+    correctly to this alias's actual current reference image.
     Plain rectangle, no baked-in corner rounding, since the adaptive-icon
     system clips this to whatever mask shape the launcher uses.
 -->
@@ -19,5 +21,5 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M0,0h108v108h-108z" android:fillColor="#3DBB4E" />
+    <path android:pathData="M0,0h108v108h-108z" android:fillColor="#529BED" />
 </vector>

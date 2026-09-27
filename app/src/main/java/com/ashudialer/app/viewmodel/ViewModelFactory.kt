@@ -24,6 +24,7 @@ class ViewModelFactory(private val app: AshuDialerApp) : ViewModelProvider.Facto
                 app.videoCallSignalingRepository,
                 app.quietHoursRepository,
                 app.callInsightsRepository,
+                app.reconnectRepository,
                 app.privateSpaceRepository,
                 app.localAuthRepository,
                 app.callbackReminderRepository,

@@ -70,6 +70,8 @@ class AshuDialerApp : Application() {
         private set
     lateinit var callInsightsRepository: com.ashudialer.app.data.CallInsightsRepository
         private set
+    lateinit var reconnectRepository: com.ashudialer.app.data.ReconnectRepository
+        private set
     lateinit var privateSpaceRepository: com.ashudialer.app.data.PrivateSpaceRepository
         private set
     lateinit var localAuthRepository: com.ashudialer.app.data.LocalAuthRepository
@@ -126,6 +128,7 @@ class AshuDialerApp : Application() {
         )
         quietHoursRepository = QuietHoursRepository(database.quietHoursDao())
         callInsightsRepository = com.ashudialer.app.data.CallInsightsRepository(database.callLogDao())
+        reconnectRepository = com.ashudialer.app.data.ReconnectRepository(database.callLogDao())
         privateSpaceRepository = com.ashudialer.app.data.PrivateSpaceRepository(database.privateSpaceDao(), database.lockedNumberDao(), this)
         localAuthRepository = com.ashudialer.app.data.LocalAuthRepository(this)
         callbackReminderRepository = com.ashudialer.app.data.CallbackReminderRepository(this, database.callbackReminderDao())

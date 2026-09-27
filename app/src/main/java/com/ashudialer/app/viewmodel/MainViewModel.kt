@@ -47,6 +47,7 @@ class MainViewModel(
     private val videoCallSignalingRepository: com.ashudialer.app.data.VideoCallSignalingRepository,
     private val quietHoursRepository: com.ashudialer.app.data.QuietHoursRepository,
     private val callInsightsRepository: com.ashudialer.app.data.CallInsightsRepository,
+    private val reconnectRepository: com.ashudialer.app.data.ReconnectRepository,
     private val privateSpaceRepository: com.ashudialer.app.data.PrivateSpaceRepository,
     private val localAuthRepository: com.ashudialer.app.data.LocalAuthRepository,
     private val callbackReminderRepository: com.ashudialer.app.data.CallbackReminderRepository,
@@ -403,6 +404,39 @@ class MainViewModel(
         viewModelScope.launch {
             _callInsights.value = null // show loading state while recomputing for the new period
             _callInsights.value = callInsightsRepository.computeInsights(period)
+        }
+    }
+
+    private val _reconnectSuggestion = MutableStateFlow<com.ashudialer.app.data.ReconnectSuggestion?>(null)
+    val reconnectSuggestion: StateFlow<com.ashudialer.app.data.ReconnectSuggestion?> = _reconnectSuggestion
+
+    /**
+     * Computes the reconnect suggestion (see ReconnectRepository) and filters
+     * out whichever one was dismissed today, if any. Called once from
+     * MainActivity when Recents is first shown (not on every recomposition -
+     * this does a bounded DB read, cheap but not free, and the underlying
+     * call log doesn't change fast enough within one screen visit to justify
+     * recomputing more often than that).
+     */
+    fun loadReconnectSuggestion() {
+        viewModelScope.launch {
+            val candidate = reconnectRepository.computeSuggestions().firstOrNull()
+            if (candidate == null) {
+                _reconnectSuggestion.value = null
+                return@launch
+            }
+            val today = System.currentTimeMillis() / 86_400_000L
+            val dismissed = appSettingsRepository.dismissedReconnectSuggestion()
+            _reconnectSuggestion.value = if (dismissed == "${candidate.phoneNumber}|$today") null else candidate
+        }
+    }
+
+    /** Dismissing clears the card for the rest of today; a different/later suggestion isn't affected. */
+    fun dismissReconnectSuggestion(suggestion: com.ashudialer.app.data.ReconnectSuggestion) {
+        viewModelScope.launch {
+            val today = System.currentTimeMillis() / 86_400_000L
+            appSettingsRepository.setDismissedReconnectSuggestion(suggestion.phoneNumber, today)
+            _reconnectSuggestion.value = null
         }
     }
 

@@ -48,6 +48,7 @@ import com.ashudialer.app.data.db.CallDirection
 import com.ashudialer.app.ui.components.Avatar
 import com.ashudialer.app.ui.components.BothWayIcon
 import com.ashudialer.app.ui.components.DirectionIcon
+import com.ashudialer.app.ui.components.ReconnectSuggestionCard
 import com.ashudialer.app.ui.components.ThemePickerButton
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 import java.text.SimpleDateFormat
@@ -98,6 +99,15 @@ fun RecentsScreen(
     // When true, every call to the same number on the same calendar day is folded into
     // one row (see groupByNumberPerDay). Default false = the original behaviour.
     groupByDay: Boolean = false,
+    // Reconnect suggestion (see ReconnectRepository/ReconnectSuggestionCard):
+    // nullable because most opens of this screen won't have a suggestion at
+    // all (no qualifying contact, or the day's suggestion was already
+    // dismissed/called) - null means "don't show the card", not "still
+    // loading", since the caller computes this once up front rather than
+    // this screen owning that async work itself.
+    reconnectSuggestion: com.ashudialer.app.data.ReconnectSuggestion? = null,
+    onCallReconnectSuggestion: (com.ashudialer.app.data.ReconnectSuggestion) -> Unit = {},
+    onDismissReconnectSuggestion: (com.ashudialer.app.data.ReconnectSuggestion) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalDialerPalette.current
@@ -197,6 +207,22 @@ fun RecentsScreen(
                 )
                 ThemePickerButton(onClick = onOpenThemePicker, currentThemeId = currentThemeId)
             }
+        }
+
+        // Sits between the title and the search bar - visible without
+        // scrolling, but not competing with either. Hidden during selection
+        // mode (a focused delete workflow; a suggestion here would just be
+        // noise) and, per ReconnectSuggestionCard's own doc comment, shows at
+        // most one suggestion so this never reads as the app nagging.
+        if (!selectionMode && reconnectSuggestion != null) {
+            Spacer(Modifier.height(10.dp))
+            ReconnectSuggestionCard(
+                suggestion = reconnectSuggestion,
+                palette = palette,
+                onCall = { onCallReconnectSuggestion(reconnectSuggestion) },
+                onDismiss = { onDismissReconnectSuggestion(reconnectSuggestion) },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
         }
 
         Spacer(Modifier.height(6.dp))
