@@ -12,8 +12,10 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Soft shadow beneath the glyph, same treatment as the Phone icon's handset shadow. -->
-    <path android:fillColor="#1A0B2E4A" android:pathData="M54,78 m-26,0 a26,10 0,1 1,52 0 a26,10 0,1 1,-52 0" />
+    <!-- Soft shadow beneath the glyph - same dark-green tint as ic_launcher_foreground.xml's
+         handset shadow (#1A0B3D14), not the earlier blue-family shadow, matching this file's
+         background color fix above. -->
+    <path android:fillColor="#1A0B3D14" android:pathData="M54,78 m-26,0 a26,10 0,1 1,52 0 a26,10 0,1 1,-52 0" />
 
     <!-- Head - circle. -->
     <path android:pathData="M54,28 m-15,0 a15,15 0,1 1,30 0 a15,15 0,1 1,-30 0">

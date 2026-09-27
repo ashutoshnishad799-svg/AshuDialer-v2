@@ -73,6 +73,16 @@ fun AccountScreen(
         }
 
         Column(modifier = Modifier.padding(horizontal = 20.dp).padding(top = 12.dp)) {
+            // user == null (truly signed out) still goes to SignedOutContent
+            // unchanged. user.isAnonymous (silently signed in for video calling,
+            // see AuthRepository.ensureSignedIn's doc comment) now ALSO reaches
+            // SignedInContent's upgrade path rather than either screen leaving
+            // them stuck: previously SignedInContent had no onSignIn/
+            // onRegisterLocal/onSignInLocal parameters at all, so an anonymous
+            // user landed on a name/email area that was blank with no
+            // explanation and no way forward from this screen - signing in for
+            // real was only reachable from the user == null branch, which an
+            // anonymous (non-null) user never hits.
             if (user == null) {
                 SignedOutContent(onSignIn, onRegisterLocal, onSignInLocal)
             } else {
@@ -84,6 +94,7 @@ fun AccountScreen(
                     lastBackupCounts = lastBackupCounts,
                     hasCloudBackupAvailable = hasCloudBackupAvailable,
                     myPhoneNumber = myPhoneNumber,
+                    onSignIn = onSignIn,
                     onSignOut = onSignOut,
                     onToggleCloudBackup = onToggleCloudBackup,
                     onBackupNow = onBackupNow,
@@ -289,6 +300,7 @@ private fun SignedInContent(
     lastBackupCounts: com.ashudialer.app.data.BackupCounts?,
     hasCloudBackupAvailable: Boolean,
     myPhoneNumber: String,
+    onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onToggleCloudBackup: (Boolean) -> Unit,
     onBackupNow: () -> Unit,
@@ -322,9 +334,77 @@ private fun SignedInContent(
         }
         Spacer(Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(user.displayName ?: "Signed in", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary)
+            // Was `user.displayName ?: "Signed in"` - on an anonymous account
+            // (see SignedInUser.isAnonymous's doc comment) displayName/email are
+            // genuinely null, not missing data, so that fallback read as an
+            // account that signed in but has no visible name, with no
+            // indication why. This makes the actual state explicit instead.
+            Text(
+                if (user.isAnonymous) "Anonymous account" else (user.displayName ?: "Signed in"),
+                fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = palette.textPrimary
+            )
             if (!user.email.isNullOrBlank()) {
                 Text(user.email, fontSize = 13.sp, color = palette.textSecondary)
+            } else if (user.isAnonymous) {
+                Text(
+                    "Backs up your data, but isn't tied to an email - sign in below to access it from another device.",
+                    fontSize = 12.sp, color = palette.textSecondary, lineHeight = 16.sp
+                )
+            }
+        }
+    }
+
+    // Upgrade path for an anonymous account. Previously SignedInContent had no
+    // way to reach onSignIn at all (see the call site's comment in
+    // AccountScreen above) - an anonymous user landed here with a blank name/
+    // email and no button anywhere on this screen to fix that, only a route
+    // back through the (unreachable, since user != null) SignedOutContent
+    // branch. AuthRepository.handleSignInResult upgrades the existing
+    // anonymous session in place (linkWithCredential, see AuthRepository.kt)
+    // rather than swapping to a new uid, so this doesn't lose whatever this
+    // anonymous account already backed up.
+    //
+    // The onSignIn lambda passed in here is the same one MainActivity already
+    // wires for SignedOutContent's Google button - that call site already
+    // handles signInIntent() coming back null (missing google-services.json,
+    // no Web app in the Firebase project, etc) by showing
+    // viewModel.signInDiagnosisMessage()'s specific reason instead of a dead
+    // click, so this button gets that same graceful degradation for free
+    // rather than needing its own null-check here.
+    //
+    // Deliberately NOT offering "sign in with email" here even though
+    // EmailAuthForm/onRegisterLocal/onSignInLocal exist and are already wired
+    // one level up in AccountScreen's own signature: that path is
+    // LocalAuthRepository, a fully separate on-device-only identity
+    // (its own UUID, no Firebase uid, no cloud sync at all - see
+    // LocalAuthRepository.kt's header comment) with no relationship to this
+    // anonymous account's Firestore backup. Offering it from a card whose text
+    // promises "so you can restore this backup after reinstalling" would be
+    // true of Google sign-in and false of local sign-in, on the same button,
+    // in the same card - worse than not offering an email option at all.
+    // A genuine cloud-backed email/password option would need Firebase Auth's
+    // own email/password provider (linkWithCredential with
+    // EmailAuthProvider.getCredential(...)), which is a real, separate feature
+    // to build, not something to fake by reusing the on-device path here.
+    if (user.isAnonymous) {
+        Spacer(Modifier.height(16.dp))
+        Column(
+            modifier = Modifier.fillMaxWidth().glassCard(palette, 18.dp).padding(16.dp)
+        ) {
+            Text("Secure this backup", fontWeight = FontWeight.SemiBold, color = palette.textPrimary, fontSize = 15.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Sign in with Google so you can restore this backup after reinstalling or on a new phone.",
+                fontSize = 12.5.sp, color = palette.textSecondary, lineHeight = 17.sp
+            )
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = onSignIn,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = palette.accent)
+            ) {
+                Text("Sign in with Google", fontWeight = FontWeight.SemiBold)
             }
         }
     }

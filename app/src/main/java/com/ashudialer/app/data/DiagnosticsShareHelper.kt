@@ -12,7 +12,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 
 /**
  * Builds the "Send feedback" report for Help & Feedback: app version, device model and Android
@@ -42,16 +44,39 @@ object DiagnosticsShareHelper {
      * network) so the caller can show a Toast and let the person retry - it is NOT silently
      * dropped on failure.
      */
+    // Neither FirebaseAuth.signInAnonymously() nor a Firestore write carries any
+    // deadline of its own - left unbounded, a write whose *local* cache commit
+    // succeeds instantly but whose *server* round-trip stalls (flaky connectivity,
+    // a rules rejection that doesn't propagate back through this particular
+    // Task the way a normal error does) leaves the calling await() sitting
+    // forever with no exception and no result, which is what a stuck "Send"
+    // spinner in SendFeedbackDialog actually was: nothing was wrong with the
+    // dialog's own state machine, the suspend call it was waiting on simply
+    // never returned. Two separate withTimeout blocks (rather than one wrapping
+    // both calls) so a timeout here is attributable to a specific stage -
+    // "auth" vs "send" - which is exactly the distinction that made this bug
+    // take real investigation to root-cause the first time; the person next
+    // time should see which stage failed directly in errorText instead of a
+    // generic failure.
+    private const val AUTH_TIMEOUT_MS = 15_000L
+    private const val SEND_TIMEOUT_MS = 20_000L
+
     /**
      * Sends the feedback report directly to Firestore. The app first makes sure
      * this install has a Firebase identity; Firestore rules require an
      * authenticated user for feedback writes. This is cancellable while the
-     * network request is in flight.
+     * network request is in flight, and each stage is time-bounded (see
+     * AUTH_TIMEOUT_MS/SEND_TIMEOUT_MS above) so a stalled network or a Firestore
+     * Task that never resolves can no longer hang the Send button indefinitely -
+     * it surfaces a specific, stage-attributed error instead.
      */
     suspend fun sendToFirestore(context: Context, userMessage: String): Result<Unit> {
         return try {
-            val signedIn = AuthRepository(context).ensureSignedIn()
-                ?: return Result.failure(IllegalStateException("Firebase authentication is unavailable."))
+            val signedIn = try {
+                withTimeout(AUTH_TIMEOUT_MS) { AuthRepository(context).ensureSignedIn() }
+            } catch (e: TimeoutCancellationException) {
+                return Result.failure(IllegalStateException("Sign-in timed out - check your connection and try again."))
+            } ?: return Result.failure(IllegalStateException("Firebase authentication is unavailable."))
 
             val crashFile = CrashLogCollector.latestCrashReport(context)
             val crashText = crashFile?.let { runCatching { it.readText() }.getOrNull() }
@@ -68,7 +93,13 @@ object DiagnosticsShareHelper {
                 "sentAt" to com.google.firebase.Timestamp.now()
             )
 
-            Firebase.firestore.collection("feedback").add(doc).await()
+            try {
+                withTimeout(SEND_TIMEOUT_MS) {
+                    Firebase.firestore.collection("feedback").add(doc).await()
+                }
+            } catch (e: TimeoutCancellationException) {
+                return Result.failure(IllegalStateException("Sending timed out - it may still arrive once you're back online, but you can try again now."))
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e

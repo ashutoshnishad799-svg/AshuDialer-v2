@@ -20,7 +20,17 @@ data class SignedInUser(
     val uid: String,
     val displayName: String?,
     val email: String?,
-    val photoUrl: String?
+    val photoUrl: String?,
+    // Mirrors FirebaseUser.isAnonymous. True for the silent, no-UI identity
+    // ensureSignedIn() (below) creates automatically for video calling - this
+    // account genuinely has no displayName/email/photoUrl, not as a bug but
+    // because nothing was ever entered for it. AccountScreen uses this to show
+    // why those fields are blank instead of leaving a person looking at an
+    // empty name/email area with no explanation (see AccountScreen's
+    // AnonymousAccountNotice), and to know when "Sign in with Google"/"Sign in
+    // with email" should read as "upgrade this account" rather than a first
+    // sign-in.
+    val isAnonymous: Boolean = false
 )
 
 sealed class SignInResult {
@@ -199,6 +209,7 @@ class AuthRepository(private val context: Context) {
         uid = uid,
         displayName = displayName,
         email = email,
-        photoUrl = photoUrl?.toString()
+        photoUrl = photoUrl?.toString(),
+        isAnonymous = isAnonymous
     )
 }

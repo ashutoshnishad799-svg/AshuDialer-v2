@@ -89,10 +89,16 @@ fun SendFeedbackDialog(onDismiss: () -> Unit) {
                             result.onSuccess {
                                 sent = true
                             }.onFailure { error ->
-                                errorText = if (error is kotlinx.coroutines.CancellationException) {
-                                    null
-                                } else {
-                                    "Couldn't send - check your connection and try again."
+                                errorText = when {
+                                    error is kotlinx.coroutines.CancellationException -> null
+                                    // Timeout failures from sendToFirestore already carry a
+                                    // specific, stage-attributed message (auth vs. send) - shown
+                                    // as-is rather than flattened to one generic string, so a
+                                    // repeat of the old stuck-spinner bug is immediately
+                                    // diagnosable from what's on screen instead of needing another
+                                    // investigation like this one.
+                                    !error.message.isNullOrBlank() -> error.message!!
+                                    else -> "Couldn't send - check your connection and try again."
                                 }
                             }
                         }

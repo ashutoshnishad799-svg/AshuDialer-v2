@@ -205,8 +205,16 @@ fun RecentsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(palette.searchBackground)
+                // Was a flat .background(palette.searchBackground) - every other
+                // surface on this screen (FAQ-style cards, the theme picker chip,
+                // selection-mode icon buttons below) already goes through
+                // liquidGlass; this row was the one plain-background holdout,
+                // which is exactly why it read as visually flat next to
+                // everything around it. tintAlpha bumped slightly above
+                // liquidGlass's 0.55 default (to 0.62) since this bar has to stay
+                // legible with live typed text sitting on top of it, not just
+                // hold static content like a card.
+                .liquidGlass(palette, RoundedCornerShape(18.dp), tintAlpha = 0.62f)
                 .padding(start = 16.dp, end = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

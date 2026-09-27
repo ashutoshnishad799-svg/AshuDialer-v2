@@ -210,8 +210,12 @@ fun ContactsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(palette.searchBackground)
+                    // Matches RecentsScreen's search bar fix - same
+                    // .background(palette.searchBackground) flat-fill pattern,
+                    // same liquidGlass swap so the two search bars (and every
+                    // other glassy surface on this screen) stay visually
+                    // consistent with each other.
+                    .liquidGlass(palette, RoundedCornerShape(18.dp), tintAlpha = 0.62f)
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
