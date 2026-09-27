@@ -207,6 +207,29 @@
             </intent-filter>
         </receiver>
 
+        <!-- ===== Favorites home-screen widget: one-tap calling for starred contacts ===== -->
+        <receiver
+            android:name=".telecom.FavoritesWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/favorites_widget_info" />
+        </receiver>
+
+        <!--
+            Backs the widget's list with real rows (see FavoritesWidgetService /
+            FavoritesRemoteViewsFactory). android:permission is required by the platform
+            for any RemoteViewsService bound from a widget host - without it, updateAppWidget's
+            setRemoteAdapter call is rejected as a security violation the moment the host
+            (the launcher) tries to bind, not merely a runtime warning.
+        -->
+        <service
+            android:name=".telecom.FavoritesWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <!-- ===== Lets a recording file be shared via Intent.ACTION_SEND without exposing a raw file:// URI ===== -->
         <provider

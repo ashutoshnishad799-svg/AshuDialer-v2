@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Favorites home-screen widget.
+
+    minWidth/minHeight of 110dp x 110dp = a 2x1 cell on the standard 4-column
+    grid most launchers use, so it fits without the person needing to hunt
+    for space; resizeMode lets them make it taller to show more favorites if
+    they want. updatePeriodMillis is intentionally left at 0 - a fixed timer
+    would either refresh needlessly often (favorites rarely change) or
+    refresh so rarely that a just-added favorite feels stuck. Instead
+    FavoritesWidgetProvider.notifyFavoritesChanged() pushes an update the
+    moment favorites actually change, which is both more accurate and
+    lighter on battery than any polling interval could be.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_favorites"
+    android:previewLayout="@layout/widget_favorites"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_favorites_description" />

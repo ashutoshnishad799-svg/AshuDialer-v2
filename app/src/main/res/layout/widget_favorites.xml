@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/bg_widget_favorites">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="14dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_favorites_title"
+            android:textColor="#F5F5F5"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!--
+            Opens the app's Contacts tab so a person with zero favorites yet
+            (or who wants to add one more) has a one-tap path to do that,
+            rather than the widget just sitting empty with no way forward.
+            FavoritesWidgetProvider fills this in per-instance since a
+            RemoteViews click target set on the root layout here applies to
+            every widget cell that doesn't have its own more specific
+            on-click target (the list items below override it for
+            themselves via setOnClickFillInIntent).
+        -->
+        <ImageView
+            android:id="@+id/widget_add_button"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:padding="5dp"
+            android:src="@drawable/ic_widget_add"
+            android:background="@drawable/bg_widget_icon_button"
+            android:contentDescription="@string/widget_add_favorite" />
+    </LinearLayout>
+
+    <!--
+        android:id="@android:id/list" and "@android:id/empty" are the fixed
+        platform ids RemoteViewsAdapter looks for - setEmptyView only takes
+        effect when the empty view uses this exact id, not an app-defined one.
+    -->
+    <ListView
+        android:id="@android:id/list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:listSelector="@android:color/transparent"
+        android:scrollbars="none" />
+
+    <include
+        android:id="@android:id/empty"
+        layout="@layout/widget_favorites_empty" />
+
+</LinearLayout>

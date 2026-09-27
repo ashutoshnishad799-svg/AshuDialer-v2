@@ -406,7 +406,11 @@ class ContactsRepository(private val context: Context) {
                 val values = android.content.ContentValues().apply {
                     put(ContactsContract.Contacts.STARRED, if (favorite) 1 else 0)
                 }
-                context.contentResolver.update(uri, values, null, null) > 0
+                val updated = context.contentResolver.update(uri, values, null, null) > 0
+                if (updated) {
+                    com.ashudialer.app.telecom.FavoritesWidgetProvider.notifyFavoritesChanged(context)
+                }
+                updated
             } catch (e: Exception) {
                 false
             }

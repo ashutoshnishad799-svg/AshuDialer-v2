@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/favorite_row_root"
+    android:layout_width="match_parent"
+    android:layout_height="52dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp">
+
+    <!--
+        Two stacked ImageViews rather than one: a real contact photo
+        (favorite_photo) and a plain solid-color circle standing in for an
+        initial (favorite_initial_bg + favorite_initial_text) when there's
+        no photo. FavoritesWidgetService.getViewAt() shows exactly one of
+        the two per row by toggling visibility - RemoteViews has no
+        equivalent of Compose's AsyncImage placeholder/fallback slot, so
+        both views must already exist in the layout and get swapped, they
+        can't be created or skipped at bind time.
+    -->
+    <FrameLayout
+        android:layout_width="38dp"
+        android:layout_height="38dp">
+
+        <ImageView
+            android:id="@+id/favorite_photo"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/favorite_initial_bg"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:src="@drawable/bg_widget_avatar" />
+
+        <TextView
+            android:id="@+id/favorite_initial_text"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:gravity="center"
+            android:textColor="#F5F5F5"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/favorite_name"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:textColor="#F5F5F5"
+        android:textSize="14sp"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <ImageView
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:padding="6dp"
+        android:src="@drawable/ic_call_notification"
+        android:background="@drawable/bg_widget_call_button"
+        android:importantForAccessibility="no" />
+
+</LinearLayout>

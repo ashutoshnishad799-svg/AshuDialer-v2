@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
             val description = if (Build.VERSION.SDK_INT >= 33) {
                 android.app.ActivityManager.TaskDescription.Builder()
                     .setLabel(label)
-                    .setIcon(android.graphics.drawable.Icon.createWithResource(this, iconRes))
+                    .setIcon(iconRes)
                     .build()
             } else {
                 @Suppress("DEPRECATION")
@@ -215,6 +215,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launcherTabFor(intent: Intent?): DialerTab {
+        // EXTRA_OPEN_TAB: a plain Intent extra, checked first, for launches that target
+        // MainActivity directly rather than through one of the two launcher aliases below -
+        // currently only the Favorites widget's "add a favorite" button (see
+        // FavoritesWidgetProvider), which has no alias of its own to carry LAUNCHER_TAB
+        // meta-data on. Takes priority over the alias lookup below since a caller that set this
+        // extra explicitly asked for a tab; an alias launch never sets it, so the two can't
+        // conflict.
+        intent?.getStringExtra(EXTRA_OPEN_TAB)?.let { requested ->
+            return if (requested == TAB_CONTACTS) DialerTab.CONTACTS else DialerTab.RECENT
+        }
+
         val componentName = intent?.component ?: return DialerTab.RECENT
         return try {
             val info = packageManager.getActivityInfo(componentName, android.content.pm.PackageManager.GET_META_DATA)
@@ -225,6 +236,12 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             DialerTab.RECENT
         }
+    }
+
+    companion object {
+        /** Intent extra key: see the doc comment on launcherTabFor above. */
+        const val EXTRA_OPEN_TAB = "com.ashudialer.app.EXTRA_OPEN_TAB"
+        const val TAB_CONTACTS = "CONTACTS"
     }
 
     /**

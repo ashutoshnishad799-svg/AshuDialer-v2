@@ -21,4 +21,10 @@
     <string name="grant_permissions">Grant permissions</string>
     <string name="accessibility_service_summary">Helps Ashu Dialer stay active in the background during calls</string>
     <string name="accessibility_service_description">This does not read your screen, does not capture call audio, and requests no special controls. It only helps some phones avoid closing Ashu Dialer in the background while a call is active.</string>
+
+    <!-- ===== Favorites home-screen widget ===== -->
+    <string name="widget_favorites_description">Call your favorite contacts in one tap, right from your home screen.</string>
+    <string name="widget_favorites_title">Favorites</string>
+    <string name="widget_add_favorite">Add a favorite</string>
+    <string name="widget_no_favorites">Star a contact to add it here</string>
 </resources>
