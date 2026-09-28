@@ -277,9 +277,9 @@ dependencies {
     implementation("com.google.accompanist:accompanist-permissions:0.34.0")
 
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
