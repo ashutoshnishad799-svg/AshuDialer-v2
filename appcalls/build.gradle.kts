@@ -107,7 +107,7 @@ tasks.matching { it.name.startsWith("merge") && it.name.contains("Assets") }.con
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.annotation:annotation:1.8.2")
+    implementation("androidx.annotation:annotation:1.11.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
