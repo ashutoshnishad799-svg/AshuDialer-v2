@@ -1,5 +1,9 @@
 package com.ashudialer.app.ui.screens
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,12 +22,15 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -130,6 +140,8 @@ fun SettingsScreen(
 
             item {
                 SectionLabel("Appearance", palette)
+                AppIconPickerRow(palette)
+                Spacer(Modifier.height(8.dp))
                 SettingsCard(palette) {
                     NavRow(icon = Icons.Filled.Palette, title = "Theme", subtitle = "Choose a color palette", palette = palette, onClick = onOpenAppearance)
                     HorizontalDivider(color = palette.cardBorder, thickness = 1.dp)
@@ -530,4 +542,163 @@ private fun TroubleshootingRows(
         NavRow(Icons.Filled.Settings, "Bluetooth headset audio", state(bluetoothOk, on = "Allowed", off = "Off. Tap to allow"), palette, onRequestBluetooth)
     }
     NavRow(Icons.Filled.Build, "Battery: keep running in background", "Tap to check", palette) { oem.openAppBatterySettings(context) }
+}
+
+
+private enum class LauncherIconChoice(
+    val title: String,
+    val subtitle: String,
+    val componentClass: String,
+    val iconRes: Int
+) {
+    EXISTING(
+        "Existing",
+        "Your current AshuDialer icon",
+        "com.ashudialer.app.LauncherPhone",
+        com.ashudialer.app.R.mipmap.ic_launcher_png
+    ),
+    NORMAL(
+        "Normal",
+        "Clean & minimal",
+        "com.ashudialer.app.LauncherIconNormal",
+        com.ashudialer.app.R.drawable.ic_launcher_icon_normal
+    ),
+    SIMPLE(
+        "Simple",
+        "Modern & clean",
+        "com.ashudialer.app.LauncherIconSimple",
+        com.ashudialer.app.R.drawable.ic_launcher_icon_simple
+    ),
+    ADVANCED(
+        "Advanced",
+        "Premium & elegant",
+        "com.ashudialer.app.LauncherIconAdvanced",
+        com.ashudialer.app.R.drawable.ic_launcher_icon_advanced
+    ),
+    PRO(
+        "Pro / Premium",
+        "Glass & modern",
+        "com.ashudialer.app.LauncherIconPro",
+        com.ashudialer.app.R.drawable.ic_launcher_icon_pro
+    )
+}
+
+@Composable
+private fun AppIconPickerRow(palette: DialerPalette) {
+    val context = LocalContext.current
+    var showPicker by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(currentLauncherIcon(context)) }
+
+    NavRow(
+        icon = Icons.Filled.Phone,
+        title = "App icon",
+        subtitle = selected.title,
+        palette = palette,
+        onClick = {
+            selected = currentLauncherIcon(context)
+            showPicker = true
+        }
+    )
+
+    if (showPicker) {
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = {
+                Text(
+                    "Choose app icon",
+                    fontWeight = FontWeight.Bold,
+                    color = palette.textPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LauncherIconChoice.entries.forEach { choice ->
+                        val isSelected = choice == selected
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    if (isSelected) palette.accent.copy(alpha = 0.10f)
+                                    else palette.cardBackground
+                                )
+                                .clickable {
+                                    setLauncherIcon(context, choice)
+                                    selected = choice
+                                    showPicker = false
+                                }
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(
+                                painter = painterResource(choice.iconRes),
+                                contentDescription = choice.title,
+                                modifier = Modifier
+                                    .size(58.dp)
+                                    .clip(RoundedCornerShape(14.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    choice.title,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = palette.textPrimary
+                                )
+                                Text(
+                                    choice.subtitle,
+                                    fontSize = 12.sp,
+                                    color = palette.textSecondary
+                                )
+                            }
+                            if (isSelected) {
+                                Text(
+                                    "✓",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = palette.accent
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showPicker = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+}
+
+private fun currentLauncherIcon(context: Context): LauncherIconChoice {
+    val pm = context.packageManager
+    return LauncherIconChoice.entries.firstOrNull { choice ->
+        pm.getComponentEnabledSetting(ComponentName(context, choice.componentClass)) ==
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+    } ?: LauncherIconChoice.EXISTING
+}
+
+private fun setLauncherIcon(context: Context, choice: LauncherIconChoice) {
+    val pm = context.packageManager
+
+    // Enable the requested alias first, then disable the other main-phone aliases.
+    // DONT_KILL_APP keeps the running dialer alive while the launcher refreshes.
+    val all = LauncherIconChoice.entries
+    val target = ComponentName(context, choice.componentClass)
+
+    pm.setComponentEnabledSetting(
+        target,
+        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+        PackageManager.DONT_KILL_APP
+    )
+
+    all.filter { it != choice }.forEach { other ->
+        pm.setComponentEnabledSetting(
+            ComponentName(context, other.componentClass),
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP
+        )
+    }
 }

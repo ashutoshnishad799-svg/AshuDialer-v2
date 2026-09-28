@@ -120,6 +120,69 @@
             <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="CONTACTS" />
         </activity-alias>
 
+        <!-- Alternative launcher icons. Exactly one of the five main-phone aliases
+             is enabled at a time by App Icon settings; LauncherContacts remains
+             independent and keeps its existing behaviour. -->
+        <activity-alias
+            android:name=".LauncherIconNormal"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_icon_normal"
+            android:roundIcon="@drawable/ic_launcher_icon_normal"
+            android:label="@string/app_name_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="RECENT" />
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconSimple"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_icon_simple"
+            android:roundIcon="@drawable/ic_launcher_icon_simple"
+            android:label="@string/app_name_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="RECENT" />
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconAdvanced"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_icon_advanced"
+            android:roundIcon="@drawable/ic_launcher_icon_advanced"
+            android:label="@string/app_name_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="RECENT" />
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherIconPro"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher_icon_pro"
+            android:roundIcon="@drawable/ic_launcher_icon_pro"
+            android:label="@string/app_name_launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data android:name="com.ashudialer.app.LAUNCHER_TAB" android:value="RECENT" />
+        </activity-alias>
+
         <!-- ===== Full-screen in-call UI ===== -->
         <activity
             android:name=".telecom.InCallActivity"
