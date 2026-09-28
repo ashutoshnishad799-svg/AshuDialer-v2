@@ -1,0 +1,47 @@
+name: Pull request check
+
+# Builds pull requests from forks WITHOUT any secrets. It only proves that the
+# code compiles and the unit tests pass. It never signs, never publishes and
+# never reads a secret, so a malicious pull request cannot leak the signing key.
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      # A placeholder Firebase config lets the project compile without the real
+      # (secret) google-services.json. It contains no real project data.
+      - name: Placeholder Firebase config
+        run: |
+          cat > app/google-services.json << 'JSON'
+          {
+            "project_info": {"project_number": "0", "project_id": "ci-placeholder", "storage_bucket": "ci-placeholder.appspot.com"},
+            "client": [{
+              "client_info": {"mobilesdk_app_id": "1:0:android:0000000000000000", "android_client_info": {"package_name": "com.ashudialer.app"}},
+              "api_key": [{"current_key": "ci-placeholder"}]
+            }],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Compile and unit-test (debug)
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon

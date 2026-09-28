@@ -1,0 +1,14 @@
+# Keeps build dependencies and GitHub Actions up to date, so known-vulnerable
+# versions get a pull request automatically instead of sitting unnoticed.
+version: 2
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

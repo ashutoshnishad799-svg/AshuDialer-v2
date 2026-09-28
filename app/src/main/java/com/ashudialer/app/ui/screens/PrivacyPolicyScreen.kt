@@ -1,3 +1,14 @@
+/*
+ * Ashu Phone
+ * Copyright (C) 2026 Ashutosh Nishad
+ *
+ * This file is part of Ashu Phone, licensed under the GNU General Public
+ * License, version 3 or (at your option) any later version.
+ * See the LICENSE and NOTICE files in the project root.
+ * This program comes with ABSOLUTELY NO WARRANTY.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
 package com.ashudialer.app.ui.screens
 
 import androidx.compose.foundation.background
@@ -32,9 +43,29 @@ private val sections = listOf(
     ),
     PolicySection(
         "Where your data lives",
-        "By default, everything — call history, contacts cache, blocked numbers, and your " +
-            "theme preference — stays on your device in a local, private database. Nothing is " +
-            "sent anywhere unless you explicitly sign in and enable Cloud Backup."
+        "Your call history, contacts cache, blocked numbers, notes, recordings and theme " +
+            "preference stay on your device in a local, private database. They are only " +
+            "uploaded if you sign in and turn on Cloud Backup. The only data that leaves the " +
+            "device without that opt-in is described in \"Video calling\" and \"Anonymous " +
+            "usage statistics\" below."
+    ),
+    PolicySection(
+        "Video calling and your phone number",
+        "To let another Ashu Dialer user reach you by video, the app creates an anonymous " +
+            "Firebase account for your install and, once you have saved your own phone number, " +
+            "publishes a mapping of the last 10 digits of that number to that anonymous account " +
+            "ID in a shared directory. Another signed-in user of the app can look up a single " +
+            "number in that directory to find out whether it is reachable; the directory cannot " +
+            "be listed or downloaded in bulk. While a video call is being set up, temporary " +
+            "connection details (call signalling) are stored in Firebase and deleted when the " +
+            "call ends. You can stop this by removing your saved number in Settings or by deleting " +
+            "your account."
+    ),
+    PolicySection(
+        "Anonymous usage statistics",
+        "The app sends anonymous, aggregate events through Firebase Analytics (for example " +
+            "that the app was opened, and which features are switched on). It never sends phone " +
+            "numbers, contact names, call history or recordings."
     ),
     PolicySection(
         "Cloud Backup (optional)",
@@ -58,7 +89,8 @@ private val sections = listOf(
     PolicySection(
         "What we don't do",
         "We don't sell your data. We don't share your call log or contacts with advertisers. " +
-            "We don't run ads in this app."
+            "We don't run ads in this app. The app's source code is public, so you can verify " +
+            "every statement in this policy yourself."
     ),
     PolicySection(
         "Your control",

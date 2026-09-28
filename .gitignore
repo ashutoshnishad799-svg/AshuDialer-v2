@@ -1,10 +1,41 @@
+# ---- Build output ----
 .gradle/
 build/
 */build/
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+# The bundled scrcpy-server is intentionally tracked (verified by SHA-256 at build time).
+!appcalls/scrcpy-server/scrcpy-server-v*
+
+# ---- Secrets: NEVER commit any of these ----
+google-services.json
+GoogleService-Info.plist
 local.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+.env
+.env.*
+secrets.properties
+service-account*.json
+firebase-adminsdk*.json
+*.der
+*.crt
+
+# ---- R8 mapping files (needed only by the developer to de-obfuscate crash reports) ----
+mapping.txt
+
+# ---- IDE / OS ----
 .idea/
 *.iml
 .DS_Store
-captures/
-*.jks
-*.keystore
+.vscode/
+*.log

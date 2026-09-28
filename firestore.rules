@@ -1,48 +1,143 @@
 rules_version = '2';
 
+// Ashu Phone - Firestore security rules.
+// Copyright (C) 2026 Ashutosh Nishad. Licensed under GPL-3.0-or-later.
+//
+// SECURITY MODEL
+// The app source is public, so every rule below assumes an attacker has read
+// the client code and can send ANY request with a valid (even self-created)
+// Firebase account. Nothing here trusts the client: ownership is derived from
+// request.auth.uid, and every write is checked for shape, type and size.
+//
+// Deploy with:  firebase deploy --only firestore:rules
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ---------- helpers ----------
+    function signedIn() {
+      return request.auth != null;
+    }
 
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // Only the keys in `allowed` may exist on the document.
+    function onlyKeys(allowed) {
+      return request.resource.data.keys().hasOnly(allowed);
+    }
+
+    // A field that an update must not change.
+    function unchanged(key) {
+      return request.resource.data[key] == resource.data[key];
+    }
+
+    // ---------- private user data ----------
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.size() < 100 * 1024;
 
-      // Cloud backup chunks (call log / contacts / rules), one document per
-      // piece under users/{uid}/backup. Firestore rules do NOT cascade from a
-      // parent document to its subcollections, so this needs its own rule or
-      // every chunked backup write is rejected with permission-denied.
+      // Cloud backup chunks (call log / contacts / rules). Rules do NOT cascade
+      // to subcollections, so they need their own rule. Firestore caps a
+      // document at 1 MiB; keep a margin so one chunk cannot be abused to
+      // store arbitrary large payloads.
       match /backup/{part} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.size() < 900 * 1024;
       }
     }
 
-
+    // ---------- video-call signalling ----------
+    // The app never writes a callee uid, so a call has exactly one identity that
+    // can be proven server-side: the caller (callerUid). The callee is found by
+    // phone number while the call is still "ringing".
+    //
+    //   create : only as yourself (callerUid == your uid), fixed field set.
+    //   get/list: the caller, or anyone while the call is still "ringing"
+    //            (that is how the callee discovers it). A call that is no
+    //            longer ringing is visible to its caller only.
+    //   update : callerUid / calleeNumber / offerSdp are frozen (no hijack or
+    //            rewrite). The caller may update freely (end / cancel); anyone
+    //            else may only touch a call that is still ringing (= answer it),
+    //            and only the answer fields.
+    //   delete : the caller, or while ringing (callee declining).
     match /video_calls/{callId} {
-      allow read, update: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.callerUid == request.auth.uid;
-      allow delete: if request.auth != null;
 
+      allow create: if signedIn()
+        && request.resource.data.callerUid == request.auth.uid
+        && onlyKeys(['callerUid', 'calleeNumber', 'callerCarrierId',
+                     'callerNumber', 'offerSdp', 'status', 'createdAtMillis'])
+        && request.resource.data.status == 'ringing'
+        && request.resource.data.calleeNumber is string
+        && request.resource.data.calleeNumber.size() <= 20
+        && request.resource.data.offerSdp is string
+        && request.resource.data.offerSdp.size() < 32 * 1024;
 
+      allow get, list: if signedIn()
+        && (resource.data.callerUid == request.auth.uid
+            || resource.data.status == 'ringing');
+
+      allow update: if signedIn()
+        && unchanged('callerUid')
+        && unchanged('calleeNumber')
+        && unchanged('offerSdp')
+        && request.resource.size() < 64 * 1024
+        && (resource.data.callerUid == request.auth.uid
+            || resource.data.status == 'ringing');
+
+      allow delete: if signedIn()
+        && (resource.data.callerUid == request.auth.uid
+            || resource.data.status == 'ringing');
+
+      // ICE candidates: the owner writes their own; participants read.
       match /candidates_{ownerUid}/{candidateId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null && request.auth.uid == ownerUid;
-        allow delete: if request.auth != null && request.auth.uid == ownerUid;
+        allow read: if signedIn();
+        allow create: if isOwner(ownerUid)
+          && request.resource.size() < 4 * 1024;
+        allow delete: if isOwner(ownerUid)
+          || (signedIn()
+              && get(/databases/$(database)/documents/video_calls/$(callId)).data.callerUid == request.auth.uid);
+        allow update: if false;
       }
     }
 
-
+    // ---------- phone directory (number -> uid) ----------
+    // Lets the app find who to ring for a phone number. An entry can only be
+    // written by the account it points to, and uid can never be re-pointed at
+    // someone else afterwards. Bulk listing is disabled so the number list
+    // cannot be scraped.
     match /phone_directory/{number} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow get: if signedIn();
+      allow list: if false;
+
+      allow create: if signedIn()
+        && number.matches('^[0-9]{10}$')
+        && onlyKeys(['uid', 'updatedAtMillis'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.updatedAtMillis is number;
+
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && onlyKeys(['uid', 'updatedAtMillis']);
+
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
-
-    // User-initiated Help & Support feedback. No public/anonymous writes.
+    // ---------- feedback (write-only inbox) ----------
     match /feedback/{feedbackId} {
-      allow create: if request.auth != null
-        && request.resource.data.uid == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.size() < 64 * 1024;
       allow read, update, delete: if false;
+    }
+
+    // ---------- everything else is closed ----------
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

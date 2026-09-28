@@ -1,0 +1,71 @@
+Ashu Phone
+Copyright (C) 2026 Ashutosh Nishad
+
+Ashu Phone is free software, licensed under the GNU General Public License,
+version 3 or (at your option) any later version (GPL-3.0-or-later).
+The full license text is in the file LICENSE.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+--------------------------------------------------------------------------------
+WHAT THE LICENSE REQUIRES FROM YOU IF YOU USE THIS CODE
+--------------------------------------------------------------------------------
+You are free to use, study, modify and redistribute this software. In return,
+the GPL requires that you:
+
+  1. Keep every copyright notice and license header in the files you use. Do not
+     remove or replace the name "Ashutosh Nishad" or any upstream author below.
+  2. Release your whole modified app under the SAME license (GPL-3.0-or-later),
+     with its complete source code available to everyone who gets the app.
+  3. Clearly mark the files you changed and the date of the change.
+  4. Include a copy of the license (the LICENSE file) with what you distribute.
+  5. Not add extra restrictions on top of the GPL.
+
+You may NOT:
+  - Distribute a closed-source version of this app or of code taken from it.
+  - Present your build as the OFFICIAL "Ashu Phone" / "Ashu Dialer" app. See
+    TRADEMARKS.md: the name, logo and icons are not licensed for reuse, so a
+    modified version must use its own name, icon and package name.
+
+Using this code without following these terms ends your permission to use it
+(GPL-3.0 section 8) and is copyright infringement, which the author may report
+to the hosting platform (for example through a GitHub DMCA notice).
+
+--------------------------------------------------------------------------------
+UPSTREAM PROJECTS THIS SOFTWARE IS BASED ON OR CONTAINS
+--------------------------------------------------------------------------------
+This project is a derivative work. The original authors keep their copyright.
+
+1. ShizuCallRecorder - https://github.com/kitsumed/ShizuCallRecorder
+   Copyright (C) kitsumed and contributors. License: GPL-3.0-or-later.
+   The call-recording engine (Shizuku shell service, recording coordinator and
+   session logic) is adapted from it.
+
+2. Ever Dialer recorder module
+   The recording module structure and its scrcpy-server integration were adapted
+   from the Ever Dialer recorder module.
+
+3. scrcpy-server - https://github.com/Genymobile/scrcpy
+   Copyright (C) Genymobile. License: Apache-2.0.
+   The bundled file appcalls/scrcpy-server/scrcpy-server-v4.0 is an unmodified
+   binary of scrcpy-server. It is verified against a pinned SHA-256 at build time
+   and again at run time.
+
+4. Shizuku API - https://github.com/RikkaApps/Shizuku-API
+   Copyright (C) RikkaApps. License: Apache-2.0.
+
+--------------------------------------------------------------------------------
+THIRD-PARTY LIBRARIES (used unmodified, under their own licenses)
+--------------------------------------------------------------------------------
+  - AndroidX / Jetpack Compose / Room / DataStore / Navigation (Google, Apache-2.0)
+  - Kotlin and kotlinx.coroutines (JetBrains, Apache-2.0)
+  - Accompanist Permissions (Google, Apache-2.0)
+  - Coil (Coil Contributors, Apache-2.0)
+  - Firebase Auth / Firestore / Analytics and Google Play Services (Google, see
+    the Firebase terms and the Android SDK license)
+  - stream-webrtc-android (GetStream, Apache-2.0, a build of Google's WebRTC)
+
+The Apache-2.0 components are compatible with GPL-3.0 and are combined here under
+GPL-3.0-or-later.

@@ -12,6 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Forks do not have the signing secrets and must never publish a release that
+    # looks official. Only the original repository builds and releases.
+    if: github.repository == 'ashutoshnishad799-svg/AshuDialer-v2'
 
     steps:
       - name: Checkout
@@ -128,11 +131,14 @@ jobs:
           FP=$(keytool -list -v -keystore app/ashuphone-release.keystore -alias "$ASHU_RELEASE_KEY_ALIAS" \
                  -storepass "$ASHU_RELEASE_STORE_PASSWORD" 2>/dev/null \
                | grep -m1 "SHA256:" | sed 's/.*SHA256: *//' | tr -d ':' | tr 'A-F' 'a-f' || true)
+          # FAIL CLOSED: an official release WITHOUT the embedded fingerprint would ship with the
+          # tamper check silently switched off. Refuse to build it instead.
           if [ "${#FP}" -eq 64 ]; then
             echo "ASHU_CERT_SHA256=$FP" >> "$GITHUB_ENV"
             echo "Embedding certificate fingerprint ${FP:0:8}... into the build"
           else
-            echo "::warning::Could not read the certificate fingerprint; the tamper check will be skipped in this build"
+            echo "::error::Could not read the release certificate fingerprint. Refusing to publish an APK with the tamper check disabled."
+            exit 1
           fi
 
       # Build + sign Release APK in one Gradle pass using the restored
@@ -175,6 +181,11 @@ jobs:
           name: AshuPhone-Release-Signed
           path: ci-artifacts/AshuPhone-Release-Signed.apk
           if-no-files-found: error
+
+      - name: Remove signing material from the runner
+        if: always()
+        run: |
+          rm -f app/ashuphone-release.keystore app/google-services.json
 
       - name: Create or update GitHub release
         env:
