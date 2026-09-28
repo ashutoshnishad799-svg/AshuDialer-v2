@@ -478,17 +478,37 @@ class MainViewModel(
 
     /**
      * Deletes a specific multi-selected set of Recents entries by their exact
-     * underlying row ids. Deliberately local-only (Room), not also reaching
-     * into the system call log the way deleteCallHistoryForNumber does above:
-     * that existing action deletes *all* history for one number by design,
-     * but a multi-select here can be a partial pick within a number's calls,
-     * and system deletion is only available per-number - doing that here too
-     * risks silently deleting more of the person's system call history than
-     * they actually selected.
+     * underlying row ids.
+     *
+     * THE FIX for "swipe-deleted entries came back": this used to delete only
+     * from the local Room mirror (callLogRepository.deleteEntriesByIds), never
+     * touching Android's real system call log. That looked like a real delete
+     * in the moment - the Recents screen reads from Room, so the rows vanished
+     * from screen immediately - but the system call log still had the exact
+     * same calls in it. The next syncFromSystem() (app reopen, a new call
+     * arriving, any background sync) re-read that still-intact system log and
+     * insertAll()'d the identical rows straight back into Room, which is
+     * exactly the "delete it, comes back later" symptom.
+     *
+     * Now mirrors deleteCallHistoryForNumber's already-correct order: delete
+     * from the real system call log first, Room second - not the reverse,
+     * since a crash or process death between the two must never leave a row
+     * gone from Room but still callable-back-into-existence by the next sync.
+     * getEntriesByIds recovers each selected row's real phoneNumber and
+     * timestampMillis before it's deleted from Room, since a grouped
+     * RecentCall (the "(3)" style entries - see groupConsecutive) only
+     * exposes one timestamp on the group itself, not each underlying call's
+     * own - deleteEntryAt needs every individual call's exact number+time to
+     * find and remove the matching system-log row without touching any other
+     * call from that same number.
      */
     fun deleteRecentEntries(entries: List<com.ashudialer.app.data.RecentCall>) {
         viewModelScope.launch {
             val allIds = entries.flatMap { it.groupedIds }.toSet()
+            val rowsToDelete = callLogRepository.getEntriesByIds(allIds)
+            rowsToDelete.forEach { row ->
+                systemCallLogRepository.deleteEntryAt(row.phoneNumber, row.timestampMillis)
+            }
             callLogRepository.deleteEntriesByIds(allIds)
         }
     }
@@ -890,61 +910,78 @@ class MainViewModel(
 
     fun backupNow() {
         val uid = currentUser.value?.uid ?: return
+        // A second tap while one is running would start a second upload
+        // racing the first; ignore it.
+        if (_backupState.value == BackupState.IN_PROGRESS) return
         viewModelScope.launch {
             _backupState.value = BackupState.IN_PROGRESS
-            val callLog: List<CallLogEntity> = callLogRepository.rawEntriesForBackup()
-            val blocked: List<BlockedNumberEntity> = blockedNumbers.value
-            // Previously only callLog + blocked numbers were ever backed up
-            // - everything below (contacts, notes, SIM/vibration/reported-
-            // spam rules) had working cloud plumbing already built
-            // (CloudBackupRepository.backup already accepted all of it once
-            // this was expanded) but backupNow() itself never actually
-            // gathered or sent it, so "Back up now" silently backed up a
-            // fraction of what the account screen implied it would.
-            val contactsSnapshot = try {
-                contactsRepository.loadAllContacts().map { c ->
-                    val parts = c.displayName.trim().split(" ", limit = 2)
-                    com.ashudialer.app.data.BackedUpContact(
-                        firstName = parts.getOrElse(0) { c.displayName },
-                        lastName = parts.getOrElse(1) { "" },
-                        phoneNumber = c.phoneNumber,
-                        phoneLabel = c.numberLabel.ifBlank { "Mobile" },
-                        email = "",
-                        homeAddress = "",
-                        company = "",
-                        notes = ""
-                    )
+            // THE FIX for "stuck on Backing up... forever": the state used to be
+            // reset only when the upload returned. Anything that threw before
+            // that (the reads below sat outside any try/catch) or never came
+            // back left it on IN_PROGRESS permanently. The finally block makes
+            // it impossible to leave this function still "in progress".
+            try {
+                val callLog: List<CallLogEntity> = try { callLogRepository.rawEntriesForBackup() } catch (e: Exception) { emptyList() }
+                val blocked: List<BlockedNumberEntity> = blockedNumbers.value
+                val contactsSnapshot = try {
+                    contactsRepository.loadAllContacts().map { c ->
+                        val parts = c.displayName.trim().split(" ", limit = 2)
+                        com.ashudialer.app.data.BackedUpContact(
+                            firstName = parts.getOrElse(0) { c.displayName },
+                            lastName = parts.getOrElse(1) { "" },
+                            phoneNumber = c.phoneNumber,
+                            phoneLabel = c.numberLabel.ifBlank { "Mobile" },
+                            email = "",
+                            homeAddress = "",
+                            company = "",
+                            notes = ""
+                        )
+                    }
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                val notesSnapshot = try { callNoteRepository.observeAll().first() } catch (e: Exception) { emptyList() }
+                val simRulesSnapshot = try { simRoutingDao.observeAll().first() } catch (e: Exception) { emptyList() }
+                val vibRulesSnapshot = try { vibrationRuleDao.observeAll().first() } catch (e: Exception) { emptyList() }
+                val reportedSpamSnapshot = try { reportedSpamDao.observeAll().first() } catch (e: Exception) { emptyList() }
+
+                val result = cloudBackupRepository.backup(
+                    uid = uid,
+                    callLog = callLog,
+                    blockedNumbers = blocked,
+                    contacts = contactsSnapshot,
+                    callNotes = notesSnapshot,
+                    simRoutingRules = simRulesSnapshot,
+                    vibrationRules = vibRulesSnapshot,
+                    reportedSpam = reportedSpamSnapshot,
+                    themeId = themeId.value,
+                    myPhoneNumber = try { appSettingsRepository.settingsFlow.first().myPhoneNumber } catch (e: Exception) { "" }
+                )
+                when (result) {
+                    is BackupResult.Success -> {
+                        _backupState.value = BackupState.SUCCESS
+                        _lastBackedUpAtMillis.value = System.currentTimeMillis()
+                        _lastBackupCounts.value = result.counts
+                        _hasCloudBackupAvailable.value = true
+                        _backupFailureMessage.value = null
+                    }
+                    is BackupResult.Failure -> {
+                        _backupFailureMessage.value = result.message
+                        _backupState.value = BackupState.FAILED
+                    }
                 }
             } catch (e: Exception) {
-                emptyList()
-            }
-            val notesSnapshot = try { callNoteRepository.observeAll().first() } catch (e: Exception) { emptyList() }
-            val simRulesSnapshot = try { simRoutingDao.observeAll().first() } catch (e: Exception) { emptyList() }
-            val vibRulesSnapshot = try { vibrationRuleDao.observeAll().first() } catch (e: Exception) { emptyList() }
-            val reportedSpamSnapshot = try { reportedSpamDao.observeAll().first() } catch (e: Exception) { emptyList() }
-
-            val result = cloudBackupRepository.backup(
-                uid = uid,
-                callLog = callLog,
-                blockedNumbers = blocked,
-                contacts = contactsSnapshot,
-                callNotes = notesSnapshot,
-                simRoutingRules = simRulesSnapshot,
-                vibrationRules = vibRulesSnapshot,
-                reportedSpam = reportedSpamSnapshot,
-                themeId = themeId.value
-            )
-            when (result) {
-                is BackupResult.Success -> {
-                    _backupState.value = BackupState.SUCCESS
-                    _lastBackedUpAtMillis.value = System.currentTimeMillis()
-                    _lastBackupCounts.value = result.counts
-                    _hasCloudBackupAvailable.value = true
-                }
-                is BackupResult.Failure -> _backupState.value = BackupState.FAILED
+                _backupFailureMessage.value = e.message ?: "Backup failed."
+                _backupState.value = BackupState.FAILED
+            } finally {
+                if (_backupState.value == BackupState.IN_PROGRESS) _backupState.value = BackupState.FAILED
             }
         }
     }
+
+    private val _backupFailureMessage = MutableStateFlow<String?>(null)
+    /** Why the last backup failed, so the Account screen can say something more useful than "failed". */
+    val backupFailureMessage: StateFlow<String?> = _backupFailureMessage
 
     /**
      * Restores a cloud backup onto this device. Every category is best-
@@ -970,7 +1007,19 @@ class MainViewModel(
     fun restoreFromCloud(onDone: (RestoreSummary) -> Unit) {
         val uid = currentUser.value?.uid ?: run { onDone(RestoreSummary.NotSignedIn); return }
         viewModelScope.launch {
-            val snapshot = cloudBackupRepository.restore(uid)
+            // THE FIX for a restore that could hang or crash: restore() does
+            // network reads and can now time out or throw (offline, Firestore
+            // not enabled, rules denying the read). That used to escape this
+            // coroutine uncaught. Report it instead.
+            val snapshot = try {
+                cloudBackupRepository.restore(uid)
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                onDone(RestoreSummary.Failed("Timed out. Check your internet connection and try again."))
+                return@launch
+            } catch (e: Exception) {
+                onDone(RestoreSummary.Failed(e.message ?: "Couldn't read the backup."))
+                return@launch
+            }
             if (snapshot == null) {
                 onDone(RestoreSummary.NoBackupFound)
                 return@launch
@@ -1041,6 +1090,12 @@ class MainViewModel(
             }
 
             themePreference.setTheme(snapshot.themeId)
+            // Bring back the person's own number too, but never overwrite one
+            // they have already typed on this phone with an older backed-up value.
+            if (snapshot.myPhoneNumber.isNotBlank()) {
+                val current = try { appSettingsRepository.settingsFlow.first().myPhoneNumber } catch (e: Exception) { "" }
+                if (current.isBlank()) setMyPhoneNumber(snapshot.myPhoneNumber)
+            }
             _lastBackedUpAtMillis.value = snapshot.lastBackedUpAtMillis
 
             onDone(
@@ -1077,4 +1132,6 @@ sealed class RestoreSummary {
     ) : RestoreSummary()
     object NoBackupFound : RestoreSummary()
     object NotSignedIn : RestoreSummary()
+    /** The restore couldn't finish (offline, timed out, or Firestore refused the read) - shown instead of hanging. */
+    data class Failed(val message: String) : RestoreSummary()
 }

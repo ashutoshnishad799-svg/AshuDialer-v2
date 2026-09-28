@@ -92,6 +92,8 @@ class CallLogRepository(private val dao: CallLogDao) {
 
     suspend fun deleteLocalHistoryForNumber(phoneNumber: String) = dao.deleteByNumber(phoneNumber)
 
+    suspend fun getEntriesByIds(ids: Set<Long>) = dao.getByIds(ids)
+
     suspend fun deleteEntriesByIds(ids: Set<Long>) = dao.deleteByIds(ids)
 
 

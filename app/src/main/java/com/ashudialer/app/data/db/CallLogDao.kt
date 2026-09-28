@@ -37,6 +37,9 @@ interface CallLogDao {
     @Query("DELETE FROM call_log WHERE phoneNumber = :phoneNumber")
     suspend fun deleteByNumber(phoneNumber: String)
 
+    @Query("SELECT * FROM call_log WHERE id IN (:ids)")
+    suspend fun getByIds(ids: Set<Long>): List<CallLogEntity>
+
     @Query("DELETE FROM call_log WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: Set<Long>)
 

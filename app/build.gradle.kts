@@ -246,6 +246,16 @@ android {
     }
 }
 
+// Exports Room's schema JSON for every DB version from now on. Before this,
+// schema history wasn't recorded anywhere, so a real Migration couldn't be
+// written or verified, and every version bump fell through to
+// fallbackToDestructiveMigration() - silently wiping user data such as
+// vibration rules on app update. Commit the generated app/schemas folder;
+// the next version bump can then get a real, checkable Migration.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
 
     implementation("androidx.core:core-ktx:1.13.1")

@@ -7,6 +7,14 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Cloud backup chunks (call log / contacts / rules), one document per
+      // piece under users/{uid}/backup. Firestore rules do NOT cascade from a
+      // parent document to its subcollections, so this needs its own rule or
+      // every chunked backup write is rejected with permission-denied.
+      match /backup/{part} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
     }
 
 

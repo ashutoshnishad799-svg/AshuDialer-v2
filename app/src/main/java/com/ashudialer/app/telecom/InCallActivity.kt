@@ -167,7 +167,9 @@ class InCallActivity : ComponentActivity() {
         // a runBlocking fallback, and it's what caused intermittent
         // open/answer-time hangs - see peekLastKnownThemeId's doc comment) or
         // drawing this first frame with no theme info at all. Worst case here
-        // (mirror not populated yet) is a one-frame "ocean" placeholder
+        // (mirror not populated yet) is a one-frame Slate/Dark-Mode
+        // placeholder (peekLastKnownThemeId falls back to AUTO_THEME_ID,
+        // resolved below the same as any other value)
         // instead of a hang - the ColorDrawable set below is only ever
         // visible for that same brief pre-first-frame gap; setContent's own
         // Compose tree (using the real themeIdFlow value, which can only ever

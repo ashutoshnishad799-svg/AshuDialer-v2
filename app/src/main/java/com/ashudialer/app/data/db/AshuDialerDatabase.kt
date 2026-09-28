@@ -9,7 +9,7 @@ import androidx.room.TypeConverters
 @Database(
     entities = [CallLogEntity::class, BlockedNumberEntity::class, CallNoteEntity::class, SimRoutingEntity::class, VibrationRuleEntity::class, QuietHoursEntity::class, PrivateSpaceEntity::class, LockedNumberEntity::class, CallbackReminderEntity::class, ReportedSpamEntity::class],
     version = 10,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AshuDialerDatabase : RoomDatabase() {
@@ -67,12 +67,20 @@ abstract class AshuDialerDatabase : RoomDatabase() {
                     // for InCallActivity/PixelInCallService is the instant a
                     // call screen appears - the DB is opened lazily, not at
                     // process start, so the crash surfaces exactly there).
-                    // Every table here is a local cache/local-only feature
-                    // (call log re-syncs from the system call log, contacts
-                    // live in the system Contacts provider) rather than a
-                    // person's only copy of anything, so recreating them on
-                    // an unmigrated upgrade is an acceptable trade-off
-                    // against crashing the whole call flow.
+                    // WARNING - this fallback is only truly harmless for
+                    // call_log (it re-syncs from the system call log). It is
+                    // NOT harmless for vibration_rules, blocked_numbers,
+                    // call_notes, sim_routing_rules, quiet_hours_schedule,
+                    // locked_numbers, private_space_config, reported_spam or
+                    // callback_reminders: those are things the person typed
+                    // in by hand and have no other source to re-sync from, so
+                    // any version bump without a real Migration silently
+                    // wipes them on app update (this is why a saved
+                    // vibration pattern could "stop working" after an update).
+                    // Schemas are now exported (exportSchema = true, see
+                    // app/schemas) so the NEXT version bump should ship with
+                    // a real addMigrations(...) entry rather than relying on
+                    // this line. Do not bump `version` without one.
                     .fallbackToDestructiveMigration()
                     .build().also { INSTANCE = it }
             }

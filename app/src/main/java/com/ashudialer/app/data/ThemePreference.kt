@@ -70,8 +70,27 @@ class ThemePreference(private val context: Context) {
          * immediately; if the mirror hasn't been populated yet (a fresh
          * install, or this is genuinely the very first read anywhere in the
          * app since updating to a build with this cache), falls back to
-         * "ocean" - the same default themeIdFlow itself has always used -
+         * AUTO_THEME_ID - the same default themeIdFlow itself actually uses
+         * (see themeIdFlow's own `prefs[key] ?: AUTO_THEME_ID` above) -
          * rather than trying to read DataStore synchronously.
+         *
+         * THE FIX for "app defaults to a white/Ocean-blue first frame
+         * instead of Slate on a fresh install": this previously fell back to
+         * the literal string "ocean" here, with a doc comment (since
+         * corrected) claiming that matched themeIdFlow's own default - it
+         * didn't; themeIdFlow's real fallback was already AUTO_THEME_ID by
+         * the time this comment was written, "ocean" had just never been
+         * updated to match. MainActivity.onCreate always correctly resolves
+         * this value through resolveThemeId() before painting, but
+         * resolveThemeId("ocean", systemIsDark) just returns "ocean"
+         * straight back unchanged - "ocean" isn't AUTO_THEME_ID, so the
+         * auto -> light/dark resolution branch never ran, and a fresh
+         * install's very first painted frame was hardcoded to Ocean's own
+         * background regardless of the device's actual system theme, well
+         * before ever reaching the real Slate/Dark-Mode default a moment
+         * later. Falling back to AUTO_THEME_ID here instead means
+         * resolveThemeId now actually runs its light-vs-dark branch on this
+         * value too, exactly as it already does for every other caller.
          *
          * THE FIX for "app hangs/feels laggy sometimes on open": an earlier
          * version of this function fell back to a runBlocking +
@@ -90,7 +109,7 @@ class ThemePreference(private val context: Context) {
          * freeze for real.
          */
         fun peekLastKnownThemeId(context: Context): String =
-            syncPrefs(context).getString(SYNC_PREFS_KEY, null) ?: "ocean"
+            syncPrefs(context).getString(SYNC_PREFS_KEY, null) ?: AUTO_THEME_ID
 
         @Deprecated(
             "Use peekLastKnownThemeId - this blocking variant caused intermittent open-time hangs (see peekLastKnownThemeId's doc comment) and should not be called from any Activity.onCreate.",

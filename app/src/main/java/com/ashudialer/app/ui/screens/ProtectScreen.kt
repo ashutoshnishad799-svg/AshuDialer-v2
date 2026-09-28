@@ -11,8 +11,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChevronRight
@@ -112,7 +114,22 @@ fun ProtectScreen(
     val silenceUnknown = settings.silenceUnknownCallers
     val flagInternational = settings.flagInternationalNumbers
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            // THE FIX for "Protect screen doesn't scroll": this Column had no
+            // scroll modifier at all - the same bug already fixed once in
+            // MoreScreen.kt (see that file's own comment for the identical
+            // symptom). Up to five conditional cards can be visible here at
+            // once (status, protection settings, caller-protection-access,
+            // lock-screen-alerts, blocked-numbers), and a fresh install
+            // commonly shows two or three of the conditional ones
+            // simultaneously (notifications/full-screen-intent/call-screening
+            // access are all typically ungranted at first run) - past a
+            // certain combined height, content below was simply clipped at
+            // the bottom of the screen with no way to reach it.
+            .verticalScroll(rememberScrollState())
+    ) {
         Text(
             "Protect", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold,
             color = palette.textPrimary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)

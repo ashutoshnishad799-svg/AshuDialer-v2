@@ -45,6 +45,7 @@ fun AccountScreen(
     backupState: BackupState,
     lastBackupCounts: com.ashudialer.app.data.BackupCounts? = null,
     hasCloudBackupAvailable: Boolean = false,
+    backupFailureMessage: String? = null,
     myPhoneNumber: String,
     onBack: () -> Unit,
     onSignIn: () -> Unit,
@@ -448,6 +449,16 @@ private fun SignedInContent(
                     BackupState.FAILED -> "Failed — tap to retry"
                     BackupState.IDLE -> "Back up now"
                 }
+            )
+        }
+
+        val failureText = backupFailureMessage?.takeIf { it.isNotBlank() }
+        if (backupState == BackupState.FAILED && failureText != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                failureText,
+                fontSize = 12.sp, color = palette.danger, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
 

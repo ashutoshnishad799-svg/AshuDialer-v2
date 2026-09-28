@@ -8,20 +8,24 @@
     wrong attribute (windowBackgroundFallback) and never actually painted
     during this gap.
 
-    Changed from the accent blue (#1E6FE8) to the light first-frame Ocean background (#F2F8FF): that dark color
-    was a reasonable choice when a dark theme was more prominent throughout
-    the app, but with OceanPalette ("Ocean Blue") now confirmed as the app's
-    actual default (a LIGHT theme - E4F3FF through 7FBFFA blues, see
-    DialerColors.kt) and the in-call screen itself using that same light
-    blue gradient, a near-black placeholder briefly showing right before a
-    light blue screen is a bigger, more visible jump than the placeholder
-    was ever meant to cause - closer to what "black screen" would actually
-    look like than the small, same-family color step this attribute is
-    supposed to be. The light Ocean top color is used deliberately so the temporary window
-    surface blends into the first frame of the default call/dialer gradient
-    instead of producing a saturated blue flash. Both MainActivity and the
-    in-call Activity use this same drawable.
+    THE FIX for "app still shows a white/Ocean-blue flash on first launch even
+    though the real default is meant to be Slate": this file previously used
+    Ocean's own "#F2F8FF" sky-white gradient stop, chosen back when
+    OceanPalette was genuinely the app's default theme (see the version
+    history in this file's own comment before this edit). Ocean is no longer
+    the default - a fresh install with no theme chosen yet now resolves
+    through AUTO_THEME_ID -> resolveThemeId() to ProfessionalPalette
+    ("Slate") on a light-mode device (see Theme.kt) - but this static XML
+    value was never updated to match, so the very first painted frame still
+    showed Ocean's blue-white regardless of which theme the person would
+    actually land on a moment later once Compose's real first frame drew.
+    Changed to "#F4F5F7", ProfessionalPalette's own solidBackground (see
+    DialerColors.kt), so the placeholder now blends into Slate's first frame
+    the same way this file's original Ocean value blended into Ocean's - same
+    principle as before, just pointed at the theme that is now actually
+    default. Both MainActivity and the in-call Activity use this same
+    drawable.
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#F2F8FF" />
+    <solid android:color="#F4F5F7" />
 </shape>

@@ -1,6 +1,7 @@
 package com.ashudialer.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -171,6 +172,12 @@ private fun ModeTab(label: String, selected: Boolean, palette: DialerPalette, on
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
+            // THE FIX for "the Import section isn't clickable": this tab took
+            // an onClick parameter but never attached it to anything, so a
+            // tap on "Import" did nothing and the whole Import section (file
+            // picker, PIN field, Restore button) was unreachable. Export only
+            // looked like it worked because it is already the default tab.
+            .clickable(onClick = onClick)
             .background(if (selected) palette.accent else palette.cardBackground)
             .padding(horizontal = 18.dp, vertical = 10.dp)
     ) {

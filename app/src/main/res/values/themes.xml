@@ -47,12 +47,14 @@
           window.setBackgroundDrawable call and ThemePreference's
           lastKnownThemeIdSync) - so this XML value is only ever visible for
           a moment even shorter than the gap it originally covered, and only
-          on the very first cold-start frame. Left as Ocean's own color
-          (call_window_background.xml / colors.xml) since Ocean is still the
-          app's real default theme for a person who has never changed it -
-          this is not the fix for a themed flash overall, just the earliest
-          possible fallback before there's any runtime code running to know
-          what theme is active.
+          on the very first cold-start frame.
+
+          UPDATED to match ProfessionalPalette ("Slate") - see the fix
+          documented in call_window_background.xml itself. A fresh install
+          with no theme chosen yet resolves to Slate on a light-mode device
+          (AUTO_THEME_ID -> resolveThemeId() in Theme.kt), so the earliest
+          possible fallback needs to blend into Slate's first frame, not
+          Ocean's - Ocean is no longer the app's real default.
         -->
         <item name="android:windowBackground">@drawable/call_window_background</item>
     </style>

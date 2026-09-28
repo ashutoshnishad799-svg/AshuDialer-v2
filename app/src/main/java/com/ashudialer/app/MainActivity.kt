@@ -313,9 +313,10 @@ class MainActivity : ComponentActivity() {
         // inside setContent a few lines down, so the same-frame runtime
         // window-background paint isn't worth a blocking main-thread read
         // here. Using the plain non-blocking sync-only read instead - if
-        // the cache isn't populated yet this resolves to "ocean" same as
-        // before this feature existed at all (peekLastKnownThemeId's own
-        // fallback), and either way the very next recomposition (once
+        // the cache isn't populated yet this resolves to AUTO_THEME_ID,
+        // resolved to Slate/Dark-Mode below same as any other value
+        // (peekLastKnownThemeId's own fallback), and either way the very
+        // next recomposition (once
         // viewModel.themeId emits) repaints with the correct theme's
         // actual background regardless.
         //
@@ -357,6 +358,7 @@ class MainActivity : ComponentActivity() {
             val currentUser by viewModel.currentUser.collectAsState()
             val settings by viewModel.settings.collectAsState()
             val backupState by viewModel.backupState.collectAsState()
+            val backupFailureMessage by viewModel.backupFailureMessage.collectAsState()
             val lastBackedUpAt by viewModel.lastBackedUpAtMillis.collectAsState()
             val lastBackupCounts by viewModel.lastBackupCounts.collectAsState()
             val hasCloudBackupAvailable by viewModel.hasCloudBackupAvailable.collectAsState()
@@ -951,7 +953,15 @@ class MainActivity : ComponentActivity() {
                         @Suppress("DEPRECATION")
                         context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
                     }
-                    vibrator?.vibrate(VibrationEffect.createWaveform(pattern.timings, -1))
+                    // Same usage tag as PixelInCallService.playVibrationPattern
+                    // (see the comment there) so Test feels exactly like a real
+                    // ringing call instead of being dropped by Android.
+                    val attributes = android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(VibrationEffect.createWaveform(pattern.timings, -1), attributes)
                 } catch (_: Exception) {
                 }
             }
@@ -1440,6 +1450,7 @@ class MainActivity : ComponentActivity() {
                                             cloudBackupEnabled = settings.cloudBackupEnabled,
                                             lastBackedUpAtMillis = lastBackedUpAt,
                                             backupState = backupState,
+                                            backupFailureMessage = backupFailureMessage,
                                             lastBackupCounts = lastBackupCounts,
                                             hasCloudBackupAvailable = hasCloudBackupAvailable,
                                             myPhoneNumber = settings.myPhoneNumber,
@@ -1484,6 +1495,8 @@ class MainActivity : ComponentActivity() {
                                                             "No cloud backup found for this account"
                                                         is com.ashudialer.app.viewmodel.RestoreSummary.NotSignedIn ->
                                                             "Sign in first to restore a backup"
+                                                        is com.ashudialer.app.viewmodel.RestoreSummary.Failed ->
+                                                            summary.message
                                                     }
                                                     Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                                 }

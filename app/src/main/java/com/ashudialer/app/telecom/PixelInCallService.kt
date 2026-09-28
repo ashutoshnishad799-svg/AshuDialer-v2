@@ -580,7 +580,23 @@ class PixelInCallService : InCallService() {
                 @Suppress("DEPRECATION")
                 getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
             }
-            vibrator?.vibrate(VibrationEffect.createWaveform(pattern.timings, -1))
+            // THE FIX for "vibration pattern doesn't work": this used to call
+            // vibrator.vibrate(effect) with no usage attributes. Android's
+            // docs say a plain vibrate() only plays while the app is in the
+            // FOREGROUND, and that background apps must tag the vibration
+            // with a ringtone / notification / alarm usage or it is dropped.
+            // This service is a background component whenever a call rings
+            // (the person is on the lock screen or another app), so the
+            // pattern was silently discarded even though the rule lookup and
+            // waveform were both correct. USAGE_NOTIFICATION_RINGTONE marks
+            // it as an incoming-call vibration, which the system allows.
+            // AudioAttributes works on every API this app supports (minSdk 29).
+            val attributes = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            @Suppress("DEPRECATION")
+            vibrator?.vibrate(VibrationEffect.createWaveform(pattern.timings, -1), attributes)
         } catch (e: Exception) {
             Log.w(TAG, "Vibration failed", e)
         }
