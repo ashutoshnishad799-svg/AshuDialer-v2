@@ -44,7 +44,7 @@ import com.ashudialer.app.ui.theme.DialerPalette
 import com.ashudialer.app.ui.theme.LocalDialerPalette
 
 /**
- * Every call-recording option, grouped the way Ever Dialer's recorder groups them:
+ * Every call-recording option, grouped by what they control:
  * what to record, filters, audio quality, where files go, notifications, auto-delete.
  * All values live in [RecordingPrefs] and take effect on the next call, no restart needed.
  */

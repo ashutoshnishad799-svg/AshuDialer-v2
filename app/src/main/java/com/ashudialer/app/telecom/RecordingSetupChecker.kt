@@ -23,7 +23,7 @@ import com.ashudialer.app.appcalls.AppCallNotificationListenerService
 import com.ashudialer.app.appcalls.ShizukuConnectionManager
 import com.ashudialer.app.appcalls.recording.RecordingPrefs
 
-/** One step of the call-recording setup, in the order Ever Dialer asks for them. */
+/** One step of the call-recording setup, in the order the person needs to complete them. */
 enum class SetupStep(val title: String, val why: String, val required: Boolean) {
     SHIZUKU_INSTALLED(
         "Shizuku app installed",

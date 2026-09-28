@@ -1,14 +1,29 @@
-# Keeps build dependencies and GitHub Actions up to date, so known-vulnerable
-# versions get a pull request automatically instead of sitting unnoticed.
+# Keeps build dependencies and GitHub Actions up to date.
+#
+# Major-version bumps of Kotlin, Room, coroutines, the Compose BOM and the Android
+# Gradle Plugin are ignored on purpose: they need code changes and a manual test,
+# and an automatic PR for them only ever fails CI. Patch and minor updates (which
+# are where most security fixes land) still arrive as pull requests.
 version: 2
 updates:
   - package-ecosystem: "gradle"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      androidx:
+        patterns: ["androidx.*"]
+        update-types: ["patch", "minor"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.jetbrains.kotlin*"
+      - dependency-name: "com.android.tools.build:gradle"
+      - dependency-name: "androidx.compose:compose-bom"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 3

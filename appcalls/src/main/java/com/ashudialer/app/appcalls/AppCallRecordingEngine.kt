@@ -40,7 +40,7 @@ import java.io.FileOutputStream
 /**
  * The single Shizuku-backed capture pipeline used for EVERYTHING this app records:
  * normal phone calls (voice-call / mic-voice-communication / uplink / downlink) and
- * WhatsApp/Telegram VoIP calls (output). Same job Ever Dialer's AudioRecordingEngine does.
+ * WhatsApp/Telegram VoIP calls (output). Records the call audio stream.
  *
  * Flow: connect to the shell service via Shizuku -> scrcpy-server captures audio as the shell
  * user -> bytes come back over a kernel pipe -> [ScrcpyClient] parses packets -> [ScrcpyAudioMuxer]

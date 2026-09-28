@@ -273,7 +273,8 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (com.ashudialer.app.util.IntegrityGuard.verifyFresh(this) ==
-            com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED) {
+            com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED ||
+            (application as? AshuDialerApp)?.tamperDetected == true) {
             finishAffinity()
         }
     }
@@ -717,13 +718,18 @@ class MainActivity : ComponentActivity() {
             ) {
                 isDefaultDialer = DialerPermissions.isDefaultDialer(context)
                 if (!isDefaultDialer) {
-                    // Some OEM role pickers return without changing the role.
-                    // Send the person straight to Android's Default apps page
-                    // instead of leaving the setup flow stranded.
+                    // Some OEM role pickers return without changing the role (typically because
+                    // "Restricted settings" is blocking a sideloaded app). We do NOT jump to another
+                    // screen on our own any more: that felt like the app hijacking navigation. Tell the
+                    // person what to do instead, and let them choose to open Settings themselves.
                     scope.launch {
                         kotlinx.coroutines.delay(700)
                         if (!DialerPermissions.isDefaultDialer(context)) {
-                            com.ashudialer.app.telecom.OemPermissionHelper.openDefaultAppsSettings(context)
+                            Toast.makeText(
+                                context,
+                                "Could not set as default. Open App info > Permissions (or Restricted settings) and turn on \"Allow restricted settings\", then try again.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
                 }
@@ -1161,7 +1167,11 @@ class MainActivity : ComponentActivity() {
                                         DialerPermissions.requestDefaultDialerIntent(context)
                                     )
                                 } catch (_: Exception) {
-                                    com.ashudialer.app.telecom.OemPermissionHelper.openDefaultAppsSettings(context)
+                                    Toast.makeText(
+                                    context,
+                                    "Could not set as default. Open App info > Permissions (or Restricted settings) and turn on \"Allow restricted settings\", then try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                 }
                             },
                             onOpenDefaultAppsSettings = {
@@ -1387,7 +1397,11 @@ class MainActivity : ComponentActivity() {
                                                             DialerPermissions.requestDefaultDialerIntent(context)
                                                         )
                                                     } catch (_: Exception) {
-                                                        com.ashudialer.app.telecom.OemPermissionHelper.openDefaultAppsSettings(context)
+                                                        Toast.makeText(
+                                    context,
+                                    "Could not set as default. Open App info > Permissions (or Restricted settings) and turn on \"Allow restricted settings\", then try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                                     }
                                                 }
                                                 "Appearance" -> showThemePicker = true
@@ -1765,7 +1779,11 @@ class MainActivity : ComponentActivity() {
                                                 try {
                                                     defaultDialerLauncher.launch(DialerPermissions.requestDefaultDialerIntent(context))
                                                 } catch (_: Exception) {
-                                                    com.ashudialer.app.telecom.OemPermissionHelper.openDefaultAppsSettings(context)
+                                                    Toast.makeText(
+                                    context,
+                                    "Could not set as default. Open App info > Permissions (or Restricted settings) and turn on \"Allow restricted settings\", then try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
                                                 }
                                             },
                                             onRequestBluetooth = {

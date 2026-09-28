@@ -91,7 +91,7 @@ Local and debug builds skip the official-signature check, so your build runs nor
 ## Credits
 
 Call-recording engine adapted from
-[ShizuCallRecorder](https://github.com/kitsumed/ShizuCallRecorder) (GPL-3.0-or-later) and the Ever Dialer recorder module.
+[ShizuCallRecorder](https://github.com/kitsumed/ShizuCallRecorder) (GPL-3.0-or-later).
 scrcpy-server by Genymobile (Apache-2.0); Shizuku API by RikkaApps (Apache-2.0). Full list in [NOTICE](NOTICE).
 
 ## Notification/UI polish

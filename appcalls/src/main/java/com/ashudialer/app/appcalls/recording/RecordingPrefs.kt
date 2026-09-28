@@ -28,7 +28,7 @@ import com.ashudialer.app.appcalls.scrcpy.ScrcpyAudioSource
  *
  * Why SharedPreferences and not DataStore: these are read synchronously from a BroadcastReceiver
  * and a foreground service at the exact moment a call changes state, where a suspending read is
- * too slow / awkward. Ever Dialer's recorder module uses the same approach for the same reason.
+ * too slow / awkward. Plain SharedPreferences is used for the same reason.
  */
 class RecordingPrefs(private val context: Context) {
 

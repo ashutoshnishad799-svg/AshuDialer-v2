@@ -296,6 +296,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    // App Check: lets the Firebase backend refuse requests that do not come from the genuine, Play-installed app.
+    // Version is managed by the Firebase BOM above. It stays inert until App Check is switched on in the console.
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("io.getstream:stream-webrtc-android:1.3.10")
 

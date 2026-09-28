@@ -18,6 +18,10 @@
 -overloadaggressively
 -optimizationpasses 5
 
+# R8 (AGP default) already runs in full mode: it renames everything that is not
+# kept above to short names, merges classes and removes unused code. The narrow
+# keep rules in this file are what let it do that to almost the whole app.
+
 # Strip source file names and line numbers from stack traces in release builds so
 # they do not leak original file names. (Upload the mapping.txt if you need to
 # de-obfuscate your own crash reports.)

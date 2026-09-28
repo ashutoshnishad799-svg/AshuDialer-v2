@@ -110,6 +110,33 @@ fun AboutScreen(
             Text("Version $versionName", fontSize = 13.sp, color = palette.textSecondary)
             Spacer(Modifier.height(6.dp))
             Text("Created by Ashutosh Nishad", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = palette.accent)
+            Spacer(Modifier.height(10.dp))
+            // Attribution is part of the app on purpose: anyone who builds and ships their own copy has to keep
+            // it (GPL-3.0 section 5), and a user can always see who the original author is.
+            Text(
+                "\u00A9 2026 Ashutosh Nishad",
+                fontSize = 12.sp,
+                color = palette.textSecondary
+            )
+            Text(
+                "Free software under GPL-3.0-or-later",
+                fontSize = 12.sp,
+                color = palette.textSecondary
+            )
+            Text(
+                "Official source: github.com/ashutoshnishad799-svg/AshuDialer-v2",
+                fontSize = 11.sp,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Call-recording engine adapted from ShizuCallRecorder by kitsumed (GPL-3.0-or-later). See NOTICE for all credits.",
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = palette.textSecondary,
+                modifier = Modifier.padding(horizontal = 28.dp)
+            )
         }
 
         Spacer(Modifier.height(8.dp))

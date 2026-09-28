@@ -20,7 +20,7 @@ package com.ashudialer.app.appcalls.scrcpy
 
 /**
  * Every audio source scrcpy-server (v4.0, verified against the bundled jar) can capture: the same
- * eleven Ever Dialer's recorder module exposes.
+ * eleven sources supported here.
  *
  * [cliKey] is passed verbatim to scrcpy-server's `audio_source=` argument.
  * [phoneCallPicker] marks the sources that make sense for a normal carrier call and are shown in

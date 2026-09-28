@@ -51,6 +51,11 @@ class AshuDialerApp : Application() {
      */
     val applicationScope = CoroutineScope(SupervisorJob())
 
+    /** Set by the delayed background integrity check. Read by the main screen; never by call handling. */
+    @Volatile
+    var tamperDetected: Boolean = false
+        private set
+
     lateinit var database: AshuDialerDatabase
         private set
     lateinit var callLogRepository: CallLogRepository
@@ -117,6 +122,32 @@ class AshuDialerApp : Application() {
         super.onCreate()
         // First, so a crash during any of the setup below is still caught.
         com.ashudialer.app.util.CrashLogCollector.install(this)
+        // Firebase App Check (Play Integrity). Once "Enforce" is switched on in the Firebase console, the backend only
+        // answers requests that carry a token proving they came from the genuine, Play-installed app - so a rebuilt or
+        // modified copy cannot use this project's Firestore. Wrapped so it can never stop the app from starting: if
+        // Play Services / Play Integrity is unavailable the app simply runs without a token (and, while enforcement is
+        // off, without any difference at all).
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+                com.google.firebase.FirebaseApp.initializeApp(this)
+            }
+            com.google.firebase.appcheck.FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+                com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        } catch (_: Throwable) {
+            // Intentionally ignored - see comment above.
+        }
+        // Third, independent integrity checkpoint (the others are in MainActivity.onCreate / onStart). It runs later
+        // and off the main thread, so removing the start-up checks alone does not switch protection off. On a copy
+        // that is not signed with the official key it only sets a flag that closes the main screen; it never touches
+        // calls, the in-call UI or notifications.
+        applicationScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            kotlinx.coroutines.delay(4_000)
+            if (com.ashudialer.app.util.IntegrityGuard.verifyFresh(this@AshuDialerApp) ==
+                com.ashudialer.app.util.IntegrityGuard.Verdict.TAMPERED) {
+                tamperDetected = true
+            }
+        }
         database = AshuDialerDatabase.getInstance(this)
         callLogRepository = CallLogRepository(database.callLogDao())
         systemCallLogRepository = SystemCallLogRepository(this)

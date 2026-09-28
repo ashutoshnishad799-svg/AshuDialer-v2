@@ -8,7 +8,6 @@ plugins {
 
 // The scrcpy-server jar this module bundles and verifies against on every use. Hash was computed
 // directly from the bundled file (see scrcpy-server/scrcpy-server-v4.0) and independently
-// confirmed against the value already declared for the same file in Ever-Dialer's own
 // recorder/build.gradle.kts, so this is not a value carried over on trust alone.
 val scrcpyVersion = "4.0"
 val scrcpyServerSha256 = "84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a"
@@ -113,7 +112,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     // Real, published Maven Central coordinates - confirmed directly against
-    // central.sonatype.com before use, matching what Ever-Dialer's own recorder module declares.
     // `api` (not `implementation`): the :app module's setup screen talks to Shizuku's listener API
     // directly, so these must be visible to it transitively.
     api("dev.rikka.shizuku:api:13.1.5")

@@ -47,7 +47,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * (capturing audio). Commands arrive as Intent actions; the service is never bound.
  *
  * Android 14+ requires a declared foreground-service type: specialUse (call recording), with
- * dataSync as the type on Android 11-13, exactly like Ever Dialer's recorder.
+ * dataSync as the type on Android 11-13.
  */
 class RecordingForegroundService : Service() {
 

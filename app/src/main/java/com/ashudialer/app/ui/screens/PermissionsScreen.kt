@@ -224,6 +224,20 @@ fun PermissionsScreen(
                     ) {
                         Text("Trouble with the dialog above? Open Settings", fontSize = 13.sp)
                     }
+                    Spacer(Modifier.height(14.dp))
+                    // Shown up front so nobody is left guessing when Android blocks the request.
+                    // "Restricted settings" is what Android 13+ applies to apps installed from a
+                    // file rather than a store; it silently disables this exact button.
+                    Text(
+                        "If setting the default fails or nothing happens:\n" +
+                            "1. Long-press the app icon and tap App info.\n" +
+                            "2. Tap the three-dot menu (top right) and choose \"Allow restricted settings\". " +
+                            "On some phones this is under Permissions instead.\n" +
+                            "3. Come back here and tap \"Set as default dialer\" again.",
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = palette.textSecondary
+                    )
                 }
                 else -> Button(
                     onClick = {},

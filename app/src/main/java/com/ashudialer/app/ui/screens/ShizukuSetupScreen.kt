@@ -58,7 +58,7 @@ private const val SHIZUKU_GITHUB_URL = "https://github.com/RikkaApps/Shizuku/rel
 private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
 
 /**
- * The whole call-recording setup in one place, modelled on Ever Dialer's permission flow:
+ * The whole call-recording setup in one place, presented as a single guided flow:
  * a live checklist (every row turns green as it is done), a button on every row that fixes
  * exactly that step, a beginner guide, a separate path for rooted phones, and the
  * auto-start options. Status refreshes every time the screen comes back to the foreground,

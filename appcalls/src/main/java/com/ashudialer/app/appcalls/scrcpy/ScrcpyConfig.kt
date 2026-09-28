@@ -67,7 +67,7 @@ object ScrcpyConfig {
 
     /**
      * Builds the argument list passed to scrcpy-server after the version string.
-     * Same shape as Ever Dialer's recorder module: caller picks the audio source and codec.
+     * The caller picks the audio source and codec.
      *
      * @param socketName  8-hex-digit socket id parsed by scrcpy as Integer.parseInt(..., 16).
      * @param audioSource What to capture (voice-call, mic-voice-communication, output, ...).

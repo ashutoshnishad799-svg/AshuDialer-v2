@@ -43,17 +43,13 @@ This project is a derivative work. The original authors keep their copyright.
    The call-recording engine (Shizuku shell service, recording coordinator and
    session logic) is adapted from it.
 
-2. Ever Dialer recorder module
-   The recording module structure and its scrcpy-server integration were adapted
-   from the Ever Dialer recorder module.
-
-3. scrcpy-server - https://github.com/Genymobile/scrcpy
+2. scrcpy-server - https://github.com/Genymobile/scrcpy
    Copyright (C) Genymobile. License: Apache-2.0.
    The bundled file appcalls/scrcpy-server/scrcpy-server-v4.0 is an unmodified
    binary of scrcpy-server. It is verified against a pinned SHA-256 at build time
    and again at run time.
 
-4. Shizuku API - https://github.com/RikkaApps/Shizuku-API
+3. Shizuku API - https://github.com/RikkaApps/Shizuku-API
    Copyright (C) RikkaApps. License: Apache-2.0.
 
 --------------------------------------------------------------------------------
