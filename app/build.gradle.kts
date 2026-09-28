@@ -282,8 +282,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
 
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
